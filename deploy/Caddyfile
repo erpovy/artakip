@@ -1,7 +1,7 @@
 # Caddy Otomatik HTTPS (Let's Encrypt) Yapılandırması
 # Kullanım: /etc/caddy/Caddyfile içine kopyalayın ve alan adınızı güncelleyin.
 
-uptime.example.com {
+artakip.artovy.com {
     encode zstd gzip
 
     header {
