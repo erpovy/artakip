@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./artakip.db"
+  url      = "file:./artakip.db?connection_limit=1"
 }
 
 model User {

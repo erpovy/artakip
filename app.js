@@ -1,6 +1,20 @@
 /**
- * Plesk / cPanel / CyberPanel / aaPanel Node.js Yöneticisi için Başlangıç Dosyası (Application Startup File)
+ * Plesk / cPanel / CyberPanel / aaPanel (CloudLinux) Başlangıç Dosyası (Application Startup File)
+ * CloudLinux NPROC / Thread limitini aşmamak için tüm havuz boyutları 1 ile sınırlandırılır.
  */
+process.env.UV_THREADPOOL_SIZE = "1";
+process.env.RAYON_NUM_THREADS = "1";
+process.env.TOKIO_WORKER_THREADS = "1";
+process.env.OMP_NUM_THREADS = "1";
+process.env.NODE_ENV = "production";
+
+const os = require("os");
+const firstCpu = os.cpus().slice(0, 1);
+os.cpus = () => firstCpu;
+if (typeof os.availableParallelism === "function") {
+  os.availableParallelism = () => 1;
+}
+
 const { createServer } = require("http");
 const { parse } = require("url");
 const next = require("next");
