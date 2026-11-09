@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Save, Plus, Trash2 } from "lucide-react";
+import { Save, Plus, Trash2, BellRing, Send, Users, History } from "lucide-react";
 import { Button, Input, Card, Badge } from "@/components/ui/primitives";
 import { formatDateTR } from "@/lib/utils";
 
@@ -153,68 +153,86 @@ export default function NotificationSettingsPage() {
 
   return (
     <div className="space-y-8 max-w-4xl">
-      <div>
-        <h1 className="text-2xl font-bold">Bildirim Ayarları</h1>
-        <p className="text-sm text-muted-foreground">
-          Kapanma/açılma e-postalarını, yanlış alarm eşiğini, sessiz saatleri ve ek alıcıları yönetin.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-extrabold tracking-tight">Bildirim Ayarları</h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Kapanma/açılma e-postalarını, yanlış alarm eşiğini, sessiz saatleri ve ek alıcıları yönetin.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={testingMail}
+          onClick={handleSendTestEmail}
+          className="gap-2 shrink-0"
+        >
+          <Send className="h-4 w-4 text-primary" />
+          {testingMail ? "Test E-postası Gönderiliyor..." : "Test E-postası Gönder"}
+        </Button>
       </div>
 
       {error && (
-        <div className="rounded-md bg-rose-500/15 border border-rose-500/30 p-3 text-sm text-rose-500">
+        <div className="rounded-xl bg-rose-500/15 border border-rose-500/30 p-3.5 text-sm text-rose-500">
           {error}
         </div>
       )}
       {message && (
-        <div className="rounded-md bg-emerald-500/15 border border-emerald-500/30 p-3 text-sm text-emerald-500">
+        <div className="rounded-xl bg-emerald-500/15 border border-emerald-500/30 p-3.5 text-sm text-emerald-500">
           {message}
         </div>
       )}
 
-      <Card className="p-6">
+      <Card className="p-6 sm:p-8">
         <form onSubmit={handleSave} className="space-y-6">
-          <h2 className="text-lg font-bold border-b pb-2">
-            E-posta Tetikleme ve Yanlış Alarm Koruması
-          </h2>
+          <div className="flex items-center gap-2 text-base font-bold border-b border-border/60 pb-3">
+            <BellRing className="h-5 w-5 text-primary" />
+            <h2>E-posta Tetikleme ve Yanlış Alarm Koruması</h2>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-            <label className="flex items-center gap-2.5 cursor-pointer">
+            <label className="flex items-center gap-3 p-3 rounded-xl border border-border/60 bg-background/40 cursor-pointer hover:border-primary/40 transition-colors">
               <input
                 type="checkbox"
                 checked={notifyOnDown}
                 onChange={(e) => setNotifyOnDown(e.target.checked)}
+                className="rounded"
               />
-              <span>Site <strong>kapandığında</strong> e-posta gönder</span>
+              <span>Site <strong>kapandığında (DOWN)</strong> e-posta gönder</span>
             </label>
-            <label className="flex items-center gap-2.5 cursor-pointer">
+            <label className="flex items-center gap-3 p-3 rounded-xl border border-border/60 bg-background/40 cursor-pointer hover:border-primary/40 transition-colors">
               <input
                 type="checkbox"
                 checked={notifyOnUp}
                 onChange={(e) => setNotifyOnUp(e.target.checked)}
+                className="rounded"
               />
-              <span>Site <strong>tekrar açıldığında</strong> e-posta gönder</span>
+              <span>Site <strong>tekrar açıldığında (UP)</strong> e-posta gönder</span>
             </label>
-            <label className="flex items-center gap-2.5 cursor-pointer">
+            <label className="flex items-center gap-3 p-3 rounded-xl border border-border/60 bg-background/40 cursor-pointer hover:border-primary/40 transition-colors">
               <input
                 type="checkbox"
                 checked={notifyOnSslExpiry}
                 onChange={(e) => setNotifyOnSslExpiry(e.target.checked)}
+                className="rounded"
               />
               <span>SSL sertifika süresi yaklaşırken uyar</span>
             </label>
-            <label className="flex items-center gap-2.5 cursor-pointer">
+            <label className="flex items-center gap-3 p-3 rounded-xl border border-border/60 bg-background/40 cursor-pointer hover:border-primary/40 transition-colors">
               <input
                 type="checkbox"
                 checked={digestDaily}
                 onChange={(e) => setDigestDaily(e.target.checked)}
+                className="rounded"
               />
               <span>Günlük uptime özet e-postası gönder</span>
             </label>
-            <label className="flex items-center gap-2.5 cursor-pointer">
+            <label className="flex items-center gap-3 p-3 rounded-xl border border-border/60 bg-background/40 cursor-pointer hover:border-primary/40 transition-colors">
               <input
                 type="checkbox"
                 checked={digestWeekly}
                 onChange={(e) => setDigestWeekly(e.target.checked)}
+                className="rounded"
               />
               <span>Haftalık uptime özet e-postası gönder</span>
             </label>
@@ -222,8 +240,8 @@ export default function NotificationSettingsPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-medium mb-1">
-                Ardışık Hata Eşiği (Yanlış Alarm Koruması)
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Ardışık Hata Eşiği
               </label>
               <Input
                 type="number"
@@ -232,12 +250,12 @@ export default function NotificationSettingsPage() {
                 value={failuresBeforeDown}
                 onChange={(e) => setFailuresBeforeDown(Number(e.target.value))}
               />
-              <span className="text-[11px] text-muted-foreground">
-                Örn: 2 = İlk hatada 5sn sonra tekrar dener, 2. hatada DOWN maili atar.
+              <span className="text-[11px] text-muted-foreground mt-1 block">
+                Örn: 2 = İlk hatada 5sn sonra doğrular, 2. hatada DOWN maili atar.
               </span>
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
                 SSL Uyarısı (Kaç Gün Kala)
               </label>
               <Input
@@ -249,9 +267,11 @@ export default function NotificationSettingsPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">Saat Dilimi</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Saat Dilimi
+              </label>
               <select
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                className="h-10 w-full rounded-xl border border-input bg-background/80 px-3.5 text-sm"
                 value={timezone}
                 onChange={(e) => setTimezone(e.target.value)}
               >
@@ -266,7 +286,7 @@ export default function NotificationSettingsPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
             <div>
-              <label className="block text-xs font-medium mb-1">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
                 Sessiz Saatler Başlangıç (Örn: 23:00)
               </label>
               <Input
@@ -276,7 +296,7 @@ export default function NotificationSettingsPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
                 Sessiz Saatler Bitiş (Örn: 07:00)
               </label>
               <Input
@@ -287,12 +307,14 @@ export default function NotificationSettingsPage() {
             </div>
           </div>
 
-          <h2 className="text-lg font-bold border-b pb-2 pt-4">
+          <h2 className="text-base font-bold border-b border-border/60 pb-2 pt-4">
             Webhook / Slack / Telegram Entegrasyonu (İsteğe Bağlı)
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-medium mb-1">Genel Webhook URL</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Genel Webhook URL
+              </label>
               <Input
                 placeholder="https://ornek.com/webhook"
                 value={webhookUrl}
@@ -300,7 +322,9 @@ export default function NotificationSettingsPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">Slack Webhook URL</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Slack Webhook URL
+              </label>
               <Input
                 placeholder="https://hooks.slack.com/services/..."
                 value={slackWebhookUrl}
@@ -308,7 +332,9 @@ export default function NotificationSettingsPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">Telegram Chat ID</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Telegram Chat ID
+              </label>
               <Input
                 placeholder="-100123456789"
                 value={telegramChatId}
@@ -317,31 +343,26 @@ export default function NotificationSettingsPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 pt-2">
             <Button type="submit" className="gap-2">
               <Save className="h-4 w-4" />
               Bildirim Ayarlarını Kaydet
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={testingMail}
-              onClick={handleSendTestEmail}
-            >
-              {testingMail ? "Test E-postası Gönderiliyor..." : "Test E-postası Gönder"}
             </Button>
           </div>
         </form>
       </Card>
 
       {/* Ek Bildirim E-postaları (AlertContacts) */}
-      <Card className="p-6 space-y-4">
-        <h2 className="text-lg font-bold">Ek Bildirim E-posta Alıcıları</h2>
+      <Card className="p-6 sm:p-8 space-y-4">
+        <div className="flex items-center gap-2">
+          <Users className="h-5 w-5 text-primary" />
+          <h2 className="text-lg font-bold">Ek Bildirim E-posta Alıcıları</h2>
+        </div>
         <p className="text-xs text-muted-foreground">
-          Ekip arkadaşlarınızın veya müşterilerinizin e-posta adreslerini ekleyin. Doğrulandıktan sonra alarmlar bu adreslere de iletilir.
+          Ekip arkadaşlarınızın veya müşterilerinizin e-posta adreslerini ekleyin. Alarmlar bu adreslere de anında iletilir.
         </p>
 
-        <form onSubmit={handleAddContact} className="flex gap-2 max-w-md">
+        <form onSubmit={handleAddContact} className="flex gap-2.5 max-w-md">
           <Input
             type="email"
             required
@@ -349,13 +370,13 @@ export default function NotificationSettingsPage() {
             value={newContactEmail}
             onChange={(e) => setNewContactEmail(e.target.value)}
           />
-          <Button type="submit" size="sm" className="gap-1.5">
+          <Button type="submit" size="sm" className="gap-1.5 h-10 px-4">
             <Plus className="h-4 w-4" /> Ekle
           </Button>
         </form>
 
         {devContactToken && (
-          <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-3 text-xs">
+          <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-xs">
             Geliştirici Modu Hızlı Doğrulama:{" "}
             <Link
               href={`/verify-email?token=${devContactToken}`}
@@ -366,7 +387,7 @@ export default function NotificationSettingsPage() {
           </div>
         )}
 
-        <div className="divide-y border rounded-md">
+        <div className="divide-y divide-border/60 border border-border/70 rounded-xl overflow-hidden">
           {contacts.length === 0 ? (
             <div className="p-4 text-xs text-muted-foreground">
               Henüz ek bildirim e-postası eklenmedi.
@@ -375,12 +396,12 @@ export default function NotificationSettingsPage() {
             contacts.map((c) => (
               <div
                 key={c.id}
-                className="p-3 flex items-center justify-between text-sm"
+                className="p-3.5 flex items-center justify-between text-sm bg-background/40"
               >
-                <div className="flex items-center gap-2">
-                  <span>{c.email}</span>
+                <div className="flex items-center gap-2.5">
+                  <span className="font-medium">{c.email}</span>
                   {c.verified ? (
-                    <Badge variant="success">Doğrulandı</Badge>
+                    <Badge variant="success">Aktif Alıcı</Badge>
                   ) : (
                     <Badge variant="warning">Doğrulama Bekliyor</Badge>
                   )}
@@ -399,32 +420,35 @@ export default function NotificationSettingsPage() {
       </Card>
 
       {/* Son Gönderilen Bildirim Kayıtları */}
-      <Card className="p-6">
-        <h2 className="text-lg font-bold mb-4">
-          Son Gönderilen E-postalar (NotificationLog)
-        </h2>
+      <Card className="p-6 sm:p-8">
+        <div className="flex items-center gap-2 mb-4">
+          <History className="h-5 w-5 text-primary" />
+          <h2 className="text-lg font-bold">
+            Son Gönderilen E-postalar (NotificationLog)
+          </h2>
+        </div>
         {recentLogs.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             Henüz gönderilmiş bildirim kaydı yok.
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto border border-border/70 rounded-xl">
             <table className="w-full text-xs text-left">
-              <thead className="border-b uppercase text-muted-foreground">
+              <thead className="border-b border-border/70 bg-muted/40 uppercase text-muted-foreground">
                 <tr>
-                  <th className="py-2 px-3">Tarih</th>
-                  <th className="py-2 px-3">Tip</th>
-                  <th className="py-2 px-3">Alıcı</th>
-                  <th className="py-2 px-3">Durum</th>
+                  <th className="py-3 px-4">Tarih</th>
+                  <th className="py-3 px-4">Tip</th>
+                  <th className="py-3 px-4">Alıcı</th>
+                  <th className="py-3 px-4">Durum</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y divide-border/60">
                 {recentLogs.map((l) => (
                   <tr key={l.id}>
-                    <td className="py-2 px-3">{formatDateTR(l.sentAt, timezone)}</td>
-                    <td className="py-2 px-3 font-semibold">{l.type}</td>
-                    <td className="py-2 px-3">{l.toEmail}</td>
-                    <td className="py-2 px-3">
+                    <td className="py-3 px-4">{formatDateTR(l.sentAt, timezone)}</td>
+                    <td className="py-3 px-4 font-bold">{l.type}</td>
+                    <td className="py-3 px-4">{l.toEmail}</td>
+                    <td className="py-3 px-4">
                       {l.success ? (
                         <Badge variant="success">Gönderildi</Badge>
                       ) : (

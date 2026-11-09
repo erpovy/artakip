@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { CheckCircle2, CreditCard } from "lucide-react";
+import { CheckCircle2, CreditCard, Sparkles } from "lucide-react";
 import { Button, Card, Badge } from "@/components/ui/primitives";
 import { DEFAULT_PLANS } from "@/lib/plans";
 
@@ -62,45 +62,56 @@ export default function BillingPage() {
   }
 
   const plans = Object.values(DEFAULT_PLANS);
-  const usagePercent = Math.min(100, Math.round((usedSites / Math.max(1, planLimit)) * 100));
+  const usagePercent = Math.min(
+    100,
+    Math.round((usedSites / Math.max(1, planLimit)) * 100)
+  );
 
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold">Abonelik ve Faturalama</h1>
-        <p className="text-sm text-muted-foreground">
+        <h1 className="text-2xl font-extrabold tracking-tight">
+          Abonelik ve Faturalama
+        </h1>
+        <p className="text-xs sm:text-sm text-muted-foreground">
           Mevcut planınızı, site kullanım limitinizi görüntüleyin ve istediğiniz zaman planınızı yükseltin.
         </p>
       </div>
 
       {error && (
-        <div className="rounded-md bg-rose-500/15 border border-rose-500/30 p-3 text-sm text-rose-500">
+        <div className="rounded-xl bg-rose-500/15 border border-rose-500/30 p-3.5 text-sm text-rose-500">
           {error}
         </div>
       )}
       {message && (
-        <div className="rounded-md bg-emerald-500/15 border border-emerald-500/30 p-3 text-sm text-emerald-500">
+        <div className="rounded-xl bg-emerald-500/15 border border-emerald-500/30 p-3.5 text-sm text-emerald-500">
           {message}
         </div>
       )}
 
       {/* Mevcut Kullanım Kartı */}
-      <Card className="p-6">
+      <Card className="p-6 sm:p-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <h2 className="text-lg font-bold">Mevcut Planınız:</h2>
-              <Badge variant="default">{currentPlan}</Badge>
+              <Badge variant="default" className="gap-1">
+                <Sparkles className="h-3 w-3" />
+                {currentPlan}
+              </Badge>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Toplam {planLimit} site hakkınızdan {usedSites} tanesini kullanıyorsunuz (%{usagePercent}).
+            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+              Toplam <strong>{planLimit}</strong> site hakkınızdan{" "}
+              <strong>{usedSites}</strong> tanesini kullanıyorsunuz (%{usagePercent}).
             </p>
           </div>
-          <CreditCard className="h-8 w-8 text-primary" />
+          <div className="h-12 w-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+            <CreditCard className="h-6 w-6" />
+          </div>
         </div>
         <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
           <div
-            className="h-full bg-primary transition-all"
+            className="h-full bg-gradient-to-r from-blue-600 to-indigo-500 transition-all"
             style={{ width: `${usagePercent}%` }}
           />
         </div>
@@ -113,8 +124,10 @@ export default function BillingPage() {
           return (
             <Card
               key={p.plan}
-              className={`p-6 flex flex-col justify-between ${
-                isCurrent ? "border-primary ring-2 ring-primary/30" : ""
+              className={`p-6 flex flex-col justify-between transition-all ${
+                isCurrent
+                  ? "border-primary ring-2 ring-primary/30 shadow-xl shadow-blue-500/10"
+                  : ""
               }`}
             >
               <div>
@@ -123,23 +136,23 @@ export default function BillingPage() {
                   {isCurrent && <Badge variant="success">Aktif Plan</Badge>}
                 </div>
                 <div className="my-4">
-                  <span className="text-3xl font-extrabold">
+                  <span className="text-3xl font-extrabold tracking-tight">
                     {p.priceTry === 0 ? "Ücretsiz" : `₺${p.priceTry}`}
                   </span>
                   {p.priceTry > 0 && (
                     <span className="text-xs text-muted-foreground"> / ay</span>
                   )}
                 </div>
-                <p className="text-xs text-muted-foreground mb-4">
+                <p className="text-xs text-muted-foreground mb-5 pb-4 border-b border-border/60">
                   <strong>{p.siteLimit}</strong> Site • Min.{" "}
                   <strong>{p.minIntervalSeconds / 60} dk</strong> kontrol •{" "}
                   <strong>{p.retentionDays} gün</strong> geçmiş
                 </p>
-                <ul className="space-y-2 text-xs mb-6">
+                <ul className="space-y-2.5 text-xs mb-6">
                   {p.features.map((f, i) => (
                     <li key={i} className="flex items-start gap-2">
                       <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                      <span>{f}</span>
+                      <span className="text-muted-foreground">{f}</span>
                     </li>
                   ))}
                 </ul>

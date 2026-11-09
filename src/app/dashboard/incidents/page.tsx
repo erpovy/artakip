@@ -2,8 +2,8 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Download, Filter } from "lucide-react";
-import { Button, Input, Card, Badge } from "@/components/ui/primitives";
+import { Download, Filter, ShieldCheck, ArrowUpRight } from "lucide-react";
+import { Button, Input, Card, Badge, StatusPulse } from "@/components/ui/primitives";
 import { formatDateTR, formatDurationTR } from "@/lib/utils";
 
 interface IncidentItem {
@@ -49,9 +49,11 @@ export default function IncidentsPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Kesinti Olayları (Incidents)</h1>
-          <p className="text-sm text-muted-foreground">
-            Tüm sitelerinizdeki kapanma ve açılma zaman çizelgesi.
+          <h1 className="text-2xl font-extrabold tracking-tight">
+            Kesinti Olayları (Incidents)
+          </h1>
+          <p className="text-xs sm:text-sm text-muted-foreground">
+            Tüm sitelerinizdeki kapanma, tekrar açılma ve hata nedenlerinin tam zaman çizelgesi.
           </p>
         </div>
         <a href={exportUrl}>
@@ -63,9 +65,11 @@ export default function IncidentsPage() {
       </div>
 
       {/* Tarih Filtresi */}
-      <Card className="p-4 flex flex-wrap items-end gap-4">
+      <Card className="p-5 flex flex-wrap items-end gap-4">
         <div>
-          <label className="block text-xs font-medium mb-1">Başlangıç Tarihi</label>
+          <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+            Başlangıç Tarihi
+          </label>
           <Input
             type="date"
             value={from}
@@ -73,14 +77,16 @@ export default function IncidentsPage() {
           />
         </div>
         <div>
-          <label className="block text-xs font-medium mb-1">Bitiş Tarihi</label>
+          <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+            Bitiş Tarihi
+          </label>
           <Input
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
           />
         </div>
-        <Button size="sm" onClick={loadIncidents} className="gap-1.5">
+        <Button size="sm" onClick={loadIncidents} className="gap-1.5 h-10">
           <Filter className="h-4 w-4" />
           Filtrele
         </Button>
@@ -92,50 +98,60 @@ export default function IncidentsPage() {
             Olaylar yükleniyor...
           </div>
         ) : incidents.length === 0 ? (
-          <div className="p-12 text-center text-sm text-muted-foreground">
-            Seçilen tarih aralığında kesinti kaydı bulunamadı.
+          <div className="p-14 text-center space-y-2">
+            <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 flex items-center justify-center mx-auto">
+              <ShieldCheck className="h-6 w-6" />
+            </div>
+            <p className="font-bold text-sm">Kesinti kaydı bulunamadı</p>
+            <p className="text-xs text-muted-foreground">
+              Seçilen tarih aralığında sitelerinizde herhangi bir kapanma yaşanmadı.
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs uppercase text-muted-foreground bg-muted/40 border-b">
+              <thead className="text-xs uppercase tracking-wider text-muted-foreground bg-muted/40 border-b border-border/70">
                 <tr>
-                  <th className="py-3 px-4">Site</th>
-                  <th className="py-3 px-4">Durum</th>
-                  <th className="py-3 px-4">Kapanma Zamanı</th>
-                  <th className="py-3 px-4">Tekrar Açılma Zamanı</th>
-                  <th className="py-3 px-4">Kesinti Süresi</th>
-                  <th className="py-3 px-4">Neden</th>
+                  <th className="py-3.5 px-4">Site</th>
+                  <th className="py-3.5 px-4">Durum</th>
+                  <th className="py-3.5 px-4">Kapanma Zamanı</th>
+                  <th className="py-3.5 px-4">Tekrar Açılma Zamanı</th>
+                  <th className="py-3.5 px-4">Kesinti Süresi</th>
+                  <th className="py-3.5 px-4">Neden</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y divide-border/60">
                 {incidents.map((inc) => (
-                  <tr key={inc.id} className="hover:bg-muted/20">
-                    <td className="py-3 px-4 font-semibold">
+                  <tr key={inc.id} className="hover:bg-muted/25 transition-colors">
+                    <td className="py-3.5 px-4 font-semibold">
                       <Link
                         href={`/dashboard/monitors/${inc.monitor.id}`}
-                        className="text-primary hover:underline"
+                        className="hover:text-primary transition-colors inline-flex items-center gap-1.5"
                       >
                         {inc.monitor.name}
+                        <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
                       </Link>
                     </td>
-                    <td className="py-3 px-4">
-                      {inc.ongoing ? (
-                        <Badge variant="danger">Devam Ediyor</Badge>
-                      ) : (
-                        <Badge variant="success">Çözüldü</Badge>
-                      )}
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center gap-2">
+                        <StatusPulse status={inc.ongoing ? "DOWN" : "UP"} size="sm" />
+                        {inc.ongoing ? (
+                          <Badge variant="danger">Devam Ediyor</Badge>
+                        ) : (
+                          <Badge variant="success">Çözüldü</Badge>
+                        )}
+                      </div>
                     </td>
-                    <td className="py-3 px-4">{formatDateTR(inc.startedAt)}</td>
-                    <td className="py-3 px-4">
+                    <td className="py-3.5 px-4 text-xs">{formatDateTR(inc.startedAt)}</td>
+                    <td className="py-3.5 px-4 text-xs">
                       {inc.resolvedAt
                         ? formatDateTR(inc.resolvedAt)
                         : "Hâlâ Kapalı"}
                     </td>
-                    <td className="py-3 px-4 font-bold">
+                    <td className="py-3.5 px-4 font-bold text-xs">
                       {formatDurationTR(inc.durationMs)}
                     </td>
-                    <td className="py-3 px-4 text-rose-500 text-xs">
+                    <td className="py-3.5 px-4 text-rose-500 text-xs font-mono">
                       {inc.reason || "-"}
                     </td>
                   </tr>

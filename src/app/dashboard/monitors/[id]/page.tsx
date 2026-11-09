@@ -3,25 +3,49 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  ResponsiveContainer,
   AreaChart,
   Area,
   XAxis,
   YAxis,
   Tooltip,
-  CartesianGrid,
+  ResponsiveContainer,
 } from "recharts";
 import {
+  RefreshCw,
   Pause,
   Play,
   Trash2,
-  RefreshCw,
+  Save,
+  ExternalLink,
   ShieldCheck,
   Clock,
-  Save,
+  Activity,
+  Gauge,
 } from "lucide-react";
-import { Button, Input, Card, Badge } from "@/components/ui/primitives";
+import {
+  Button,
+  Input,
+  Card,
+  Badge,
+  StatusPulse,
+} from "@/components/ui/primitives";
 import { formatDateTR, formatDurationTR } from "@/lib/utils";
+
+interface CheckRecord {
+  id: string;
+  status: "UP" | "DOWN";
+  statusCode: number | null;
+  latencyMs: number;
+  error: string | null;
+  checkedAt: string;
+}
+
+interface IncidentRecord {
+  id: string;
+  startedAt: string;
+  resolvedAt: string | null;
+  reason: string | null;
+}
 
 interface MonitorDetail {
   id: string;
@@ -34,462 +58,402 @@ interface MonitorDetail {
   expectedStatus: string;
   wpCheckPath: string | null;
   paused: boolean;
-  checkSsl: boolean;
-  currentStatus: "UP" | "DOWN" | "UNKNOWN";
+  currentStatus: "UP" | "DOWN" | "PAUSED" | "UNKNOWN";
   lastCheckedAt: string | null;
-  lastStatusChangeAt: string | null;
-  sslExpiresAt: string | null;
-  tags: string[];
-  incidents: Array<{
-    id: string;
-    startedAt: string;
-    resolvedAt: string | null;
-    reason: string | null;
-  }>;
-  checks: Array<{
-    id: string;
-    checkedAt: string;
-    status: "UP" | "DOWN" | "UNKNOWN";
-    httpCode: number | null;
-    responseMs: number | null;
-    error: string | null;
-  }>;
+  lastLatencyMs: number | null;
+  sslDaysRemaining: number | null;
+  sslIssuer: string | null;
+  tags: string;
+  checks: CheckRecord[];
+  incidents: IncidentRecord[];
 }
 
 export default function MonitorDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
-  const monitorId = params.id;
-
   const [monitor, setMonitor] = useState<MonitorDetail | null>(null);
-  const [range, setRange] = useState<"24h" | "7d" | "30d">("24h");
-  const [chartData, setChartData] = useState<
-    Array<{ time: string; responseMs: number }>
-  >([]);
-  const [uptimePct, setUptimePct] = useState(100);
-  const [avgMs, setAvgMs] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [checkingNow, setCheckingNow] = useState(false);
-
-  // Düzenleme state
+  const [stats, setStats] = useState<{
+    uptime24h: number;
+    uptime7d: number;
+    uptime30d: number;
+    avgLatencyMs: number;
+  } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [editName, setEditName] = useState("");
-  const [editInterval, setEditInterval] = useState(300);
-  const [editTimeout, setEditTimeout] = useState(15);
-  const [editKeyword, setEditKeyword] = useState("");
-  const [saveMsg, setSaveMsg] = useState("");
+  const [editUrl, setEditUrl] = useState("");
+  const [editInterval, setEditInterval] = useState(600);
+  const [message, setMessage] = useState("");
 
   const loadDetail = useCallback(async () => {
-    try {
-      setErrorMsg(null);
-      const [detailRes, checksRes] = await Promise.all([
-        fetch(`/api/monitors/${monitorId}`, { cache: "no-store" }),
-        fetch(`/api/monitors/${monitorId}/checks?range=${range}`, { cache: "no-store" }),
-      ]);
-
-      if (detailRes.ok) {
-        const d = await detailRes.json();
-        if (d?.monitor) {
-          setMonitor({
-            ...d.monitor,
-            incidents: Array.isArray(d.monitor.incidents) ? d.monitor.incidents : [],
-            checks: Array.isArray(d.monitor.checks) ? d.monitor.checks : [],
-            tags: Array.isArray(d.monitor.tags) ? d.monitor.tags : [],
-          });
-          setEditName(d.monitor.name || "");
-          setEditInterval(d.monitor.intervalSeconds || 300);
-          setEditTimeout(d.monitor.timeoutSeconds || 15);
-          setEditKeyword(d.monitor.keyword || "");
-        }
-      } else {
-        const errData = await detailRes.json().catch(() => ({}));
-        setErrorMsg(errData.error || `Site bilgileri alınamadı (HTTP ${detailRes.status}).`);
-      }
-
-      if (checksRes.ok) {
-        const c = await checksRes.json();
-        setUptimePct(c.uptimePercent ?? 100);
-        setAvgMs(c.avgResponseMs ?? 0);
-        setChartData(
-          (Array.isArray(c.checks) ? c.checks : []).map(
-            (item: { checkedAt: string; responseMs: number | null }) => ({
-              time: new Date(item.checkedAt).toLocaleTimeString("tr-TR", {
-                hour: "2-digit",
-                minute: "2-digit",
-              }),
-              responseMs: item.responseMs ?? 0,
-            })
-          )
-        );
-      }
-    } catch {
-      setErrorMsg("Sunucu ile bağlantı kurulurken bir hata oluştu.");
-    } finally {
-      setLoading(false);
-    }
-  }, [monitorId, range]);
+    const res = await fetch(`/api/monitors/${params.id}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    setMonitor(data.monitor);
+    setStats(data.stats);
+    setEditName(data.monitor.name);
+    setEditUrl(data.monitor.url);
+    setEditInterval(data.monitor.intervalSeconds);
+  }, [params.id]);
 
   useEffect(() => {
     loadDetail();
   }, [loadDetail]);
 
-  async function triggerCheckNow() {
-    setCheckingNow(true);
-    await fetch(`/api/monitors/${monitorId}/check-now`, { method: "POST" });
+  async function handleCheckNow() {
+    setChecking(true);
+    await fetch(`/api/monitors/${params.id}/check-now`, { method: "POST" });
     await loadDetail();
-    setCheckingNow(false);
+    setChecking(false);
   }
 
-  async function togglePause() {
+  async function handleTogglePause() {
     if (!monitor) return;
-    const ep = monitor.paused
-      ? `/api/monitors/${monitor.id}/resume`
-      : `/api/monitors/${monitor.id}/pause`;
-    await fetch(ep, { method: "POST" });
-    await loadDetail();
-  }
-
-  async function handleDelete() {
-    if (!confirm("Bu siteyi ve tüm geçmiş kayıtlarını silmek istediğinize emin misiniz?"))
-      return;
-    await fetch(`/api/monitors/${monitorId}`, { method: "DELETE" });
-    router.push("/dashboard/monitors");
+    await fetch(`/api/monitors/${monitor.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paused: !monitor.paused }),
+    });
+    loadDetail();
   }
 
   async function handleSaveSettings(e: React.FormEvent) {
     e.preventDefault();
-    setSaveMsg("");
-    const res = await fetch(`/api/monitors/${monitorId}`, {
+    if (!monitor) return;
+    setSaving(true);
+    setMessage("");
+    const res = await fetch(`/api/monitors/${monitor.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: editName,
+        url: editUrl,
         intervalSeconds: Number(editInterval),
-        timeoutSeconds: Number(editTimeout),
-        keyword: editKeyword || null,
       }),
     });
-    const d = await res.json();
+    setSaving(false);
     if (res.ok) {
-      setSaveMsg("Ayarlar güncellendi.");
+      setMessage("Ayarlar başarıyla güncellendi.");
       loadDetail();
-    } else {
-      setSaveMsg(d.error || "Hata oluştu.");
     }
   }
 
-  if (loading) {
-    return <div className="py-12 text-center text-muted-foreground">Yükleniyor...</div>;
+  async function handleDelete() {
+    if (!monitor) return;
+    if (!confirm("Bu siteyi ve tüm geçmişini silmek istediğinize emin misiniz?"))
+      return;
+    await fetch(`/api/monitors/${monitor.id}`, { method: "DELETE" });
+    router.push("/dashboard/monitors");
   }
 
-  if (errorMsg || !monitor) {
+  if (!monitor) {
     return (
-      <Card className="p-8 text-center space-y-4">
-        <p className="text-sm text-rose-500 font-medium">
-          {errorMsg || "Site detayı bulunamadı."}
-        </p>
-        <div className="flex justify-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => router.push("/dashboard/monitors")}>
-            Sitelere Dön
-          </Button>
-          <Button size="sm" onClick={() => { setLoading(true); loadDetail(); }}>
-            Tekrar Dene
-          </Button>
-        </div>
-      </Card>
+      <div className="p-12 text-center text-sm text-muted-foreground">
+        Site detayları yükleniyor...
+      </div>
     );
   }
 
-  const sslDaysRemaining = monitor.sslExpiresAt
-    ? Math.floor(
-        (new Date(monitor.sslExpiresAt).getTime() - Date.now()) / 86_400_000
-      )
-    : null;
+  const chartData = [...monitor.checks]
+    .reverse()
+    .map((c) => ({
+      time: new Date(c.checkedAt).toLocaleTimeString("tr-TR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      latency: c.latencyMs,
+    }));
+
+  const recentTicks = [...monitor.checks].slice(0, 40).reverse();
+  const displayStatus = monitor.paused ? "PAUSED" : monitor.currentStatus;
 
   return (
-    <div className="space-y-6">
-      {/* Üst Başlık */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold">{monitor.name}</h1>
-            {monitor.paused ? (
-              <Badge variant="outline">Duraklatıldı</Badge>
-            ) : monitor.currentStatus === "UP" ? (
-              <Badge variant="success">● AÇIK (UP)</Badge>
-            ) : monitor.currentStatus === "DOWN" ? (
-              <Badge variant="danger">● KAPALI (DOWN)</Badge>
-            ) : (
-              <Badge variant="warning">Kontrol Bekleniyor</Badge>
-            )}
-          </div>
-          <p className="text-sm text-muted-foreground mt-1">
-            {monitor.url}{" "}
-            {monitor.wpCheckPath ? `(WP Kontrol Yolu: ${monitor.wpCheckPath})` : ""}
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={triggerCheckNow}
-            disabled={checkingNow}
-          >
-            <RefreshCw
-              className={`h-4 w-4 mr-1.5 ${checkingNow ? "animate-spin" : ""}`}
-            />
-            {checkingNow ? "Kontrol Ediliyor..." : "Şimdi Kontrol Et"}
-          </Button>
-          <Button variant="outline" size="sm" onClick={togglePause}>
-            {monitor.paused ? (
-              <>
-                <Play className="h-4 w-4 mr-1.5 text-emerald-500" /> Devam Ettir
-              </>
-            ) : (
-              <>
-                <Pause className="h-4 w-4 mr-1.5 text-amber-500" /> Duraklat
-              </>
-            )}
-          </Button>
-          <Button variant="destructive" size="sm" onClick={handleDelete}>
-            <Trash2 className="h-4 w-4 mr-1.5" /> Sil
-          </Button>
-        </div>
-      </div>
-
-      {/* Özet Metrik Kartları */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <Card className="p-4">
-          <span className="text-xs text-muted-foreground uppercase">
-            Uptime ({range})
-          </span>
-          <p className="text-2xl font-bold text-emerald-500 mt-1">%{uptimePct}</p>
-        </Card>
-        <Card className="p-4">
-          <span className="text-xs text-muted-foreground uppercase">
-            Ort. Yanıt Süresi
-          </span>
-          <p className="text-2xl font-bold mt-1">{avgMs} ms</p>
-        </Card>
-        <Card className="p-4">
-          <span className="text-xs text-muted-foreground uppercase">
-            Kontrol Aralığı
-          </span>
-          <p className="text-2xl font-bold mt-1 flex items-center gap-1.5">
-            <Clock className="h-5 w-5 text-primary" />
-            {monitor.intervalSeconds / 60} dk
-          </p>
-        </Card>
-        <Card className="p-4">
-          <span className="text-xs text-muted-foreground uppercase">
-            SSL Sertifikası
-          </span>
-          <p className="text-lg font-bold mt-1 flex items-center gap-1.5">
-            <ShieldCheck className="h-5 w-5 text-emerald-500" />
-            {sslDaysRemaining !== null
-              ? `${sslDaysRemaining} gün kaldı`
-              : monitor.url.startsWith("https://")
-              ? "Aktif (HTTPS)"
-              : "HTTP"}
-          </p>
-        </Card>
-      </div>
-
-      {/* Yanıt Süresi Grafiği (Recharts) */}
-      <Card className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold">Yanıt Süresi Grafiği (ms)</h2>
-          <div className="flex gap-1">
-            {(["24h", "7d", "30d"] as const).map((r) => (
-              <Button
-                key={r}
-                size="sm"
-                variant={range === r ? "default" : "outline"}
-                onClick={() => setRange(r)}
+    <div className="space-y-8">
+      {/* Üst Hero Kartı */}
+      <Card className="p-6 border-border/80">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="flex items-start sm:items-center gap-4">
+            <StatusPulse status={displayStatus} size="lg" />
+            <div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h1 className="text-2xl font-extrabold tracking-tight">
+                  {monitor.name}
+                </h1>
+                {monitor.paused ? (
+                  <Badge variant="outline">Duraklatıldı</Badge>
+                ) : monitor.currentStatus === "UP" ? (
+                  <Badge variant="success">Çalışıyor (UP)</Badge>
+                ) : monitor.currentStatus === "DOWN" ? (
+                  <Badge variant="danger">Kapalı (DOWN)</Badge>
+                ) : (
+                  <Badge variant="warning">Kontrol Bekleniyor</Badge>
+                )}
+              </div>
+              <a
+                href={monitor.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs sm:text-sm text-muted-foreground hover:text-primary inline-flex items-center gap-1.5 mt-1 font-mono"
               >
-                {r === "24h" ? "24 Saat" : r === "7d" ? "7 Gün" : "30 Gün"}
-              </Button>
-            ))}
+                {monitor.url} <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2.5">
+            <Button
+              size="sm"
+              onClick={handleCheckNow}
+              disabled={checking}
+              className="gap-1.5"
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${checking ? "animate-spin" : ""}`}
+              />
+              {checking ? "Kontrol Ediliyor..." : "Şimdi Kontrol Et"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTogglePause}
+              className="gap-1.5"
+            >
+              {monitor.paused ? (
+                <>
+                  <Play className="h-4 w-4" /> Devam Ettir
+                </>
+              ) : (
+                <>
+                  <Pause className="h-4 w-4" /> Duraklat
+                </>
+              )}
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleDelete}
+              className="gap-1.5"
+            >
+              <Trash2 className="h-4 w-4" /> Sil
+            </Button>
           </div>
         </div>
-        <div className="h-64 w-full">
-          {chartData.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-              Henüz grafik için yeterli kontrol verisi yok. &quot;Şimdi Kontrol Et&quot; butonuna tıklayabilirsiniz.
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                <XAxis dataKey="time" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} unit="ms" />
-                <Tooltip />
-                <Area
-                  type="monotone"
-                  dataKey="responseMs"
-                  stroke="#3b82f6"
-                  fill="#3b82f6"
-                  fillOpacity={0.2}
-                  name="Yanıt Süresi (ms)"
+
+        {/* Canlı Kontrol Nabız Çubuğu (Son 40 Kontrol) */}
+        <div className="mt-6 pt-5 border-t border-border/60">
+          <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
+            <span className="font-semibold text-foreground">
+              Son Kontroller Nabız Çizelgesi
+            </span>
+            <span>Son kontrol: {formatDateTR(monitor.lastCheckedAt)}</span>
+          </div>
+          <div className="flex items-center gap-1 h-7">
+            {recentTicks.length === 0 ? (
+              <div className="text-xs text-muted-foreground">
+                Henüz kontrol kaydı bulunmuyor.
+              </div>
+            ) : (
+              recentTicks.map((chk) => (
+                <div
+                  key={chk.id}
+                  title={`${formatDateTR(chk.checkedAt)} — ${chk.status} (${chk.latencyMs} ms)`}
+                  className={`flex-1 h-full rounded-sm transition-transform hover:scale-y-110 ${
+                    chk.status === "UP"
+                      ? "bg-emerald-500/85 hover:bg-emerald-400"
+                      : "bg-rose-500 hover:bg-rose-400"
+                  }`}
                 />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
+              ))
+            )}
+          </div>
         </div>
       </Card>
 
-      {/* Olay Geçmişi Tablosu (Ne zaman kapandı -> Ne zaman açıldı -> Süre) */}
+      {/* Uptime ve SSL Özeti */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="p-5">
+          <div className="flex items-center justify-between text-xs text-muted-foreground font-bold uppercase">
+            <span>Son 24 Saat Uptime</span>
+            <Activity className="h-4 w-4 text-emerald-500" />
+          </div>
+          <p className="text-3xl font-extrabold text-emerald-500 mt-2">
+            %{stats?.uptime24h ?? 100}
+          </p>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center justify-between text-xs text-muted-foreground font-bold uppercase">
+            <span>7 / 30 Gün Uptime</span>
+            <Clock className="h-4 w-4 text-primary" />
+          </div>
+          <p className="text-2xl font-extrabold mt-2">
+            %{stats?.uptime7d ?? 100}{" "}
+            <span className="text-muted-foreground font-normal text-base">/</span>{" "}
+            %{stats?.uptime30d ?? 100}
+          </p>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center justify-between text-xs text-muted-foreground font-bold uppercase">
+            <span>Ortalama Yanıt Süresi</span>
+            <Gauge className="h-4 w-4 text-amber-500" />
+          </div>
+          <p className="text-3xl font-extrabold mt-2">
+            {stats?.avgLatencyMs ?? 0}{" "}
+            <span className="text-sm font-normal text-muted-foreground">ms</span>
+          </p>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center justify-between text-xs text-muted-foreground font-bold uppercase">
+            <span>SSL Sertifikası</span>
+            <ShieldCheck className="h-4 w-4 text-emerald-500" />
+          </div>
+          <p className="text-xl font-extrabold mt-2 flex items-center gap-1.5">
+            {monitor.sslDaysRemaining !== null
+              ? `${monitor.sslDaysRemaining} gün kaldı`
+              : "HTTPS Yok / Bekleniyor"}
+          </p>
+          {monitor.sslIssuer && (
+            <p className="text-[11px] text-muted-foreground truncate mt-1">
+              Sağlayıcı: {monitor.sslIssuer}
+            </p>
+          )}
+        </Card>
+      </div>
+
+      {/* Yanıt Süresi (Latency) Grafiği */}
       <Card className="p-6">
-        <h2 className="text-lg font-bold mb-4">
-          Kapanma / Açılma Olay Geçmişi (Incidents)
-        </h2>
-        {monitor.incidents.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4">
-            Bu sitede kayıtlı hiçbir kapanma olayı bulunmuyor.
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-bold">Yanıt Süresi Grafiği (ms)</h2>
+            <p className="text-xs text-muted-foreground">
+              Son kontrollerdeki sunucu yanıt hızı (milisaniye)
+            </p>
+          </div>
+        </div>
+        {chartData.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-8 text-center">
+            Henüz kontrol verisi oluşmadı. &quot;Şimdi Kontrol Et&quot; butonuna tıklayın.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="text-xs uppercase text-muted-foreground border-b">
-                <tr>
-                  <th className="py-2.5 px-3">Durum</th>
-                  <th className="py-2.5 px-3">Ne Zaman Kapandı</th>
-                  <th className="py-2.5 px-3">Ne Zaman Açıldı</th>
-                  <th className="py-2.5 px-3">Kesinti Süresi</th>
-                  <th className="py-2.5 px-3">Hata Nedeni</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {monitor.incidents.map((inc) => {
-                  const durMs =
-                    (inc.resolvedAt
-                      ? new Date(inc.resolvedAt).getTime()
-                      : Date.now()) - new Date(inc.startedAt).getTime();
-                  return (
-                    <tr key={inc.id}>
-                      <td className="py-2.5 px-3">
-                        {inc.resolvedAt ? (
-                          <Badge variant="success">Açıldı</Badge>
-                        ) : (
-                          <Badge variant="danger">Hâlâ Kapalı</Badge>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3">{formatDateTR(inc.startedAt)}</td>
-                      <td className="py-2.5 px-3">
-                        {inc.resolvedAt
-                          ? formatDateTR(inc.resolvedAt)
-                          : "Devam Ediyor"}
-                      </td>
-                      <td className="py-2.5 px-3 font-semibold">
-                        {formatDurationTR(durMs)}
-                      </td>
-                      <td className="py-2.5 px-3 text-rose-500 text-xs">
-                        {inc.reason || "-"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData}>
+                <defs>
+                  <linearGradient id="latencyGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="time" fontSize={11} stroke="#64748b" />
+                <YAxis fontSize={11} stroke="#64748b" unit="ms" />
+                <Tooltip />
+                <Area
+                  type="monotone"
+                  dataKey="latency"
+                  stroke="#3b82f6"
+                  fill="url(#latencyGrad)"
+                  strokeWidth={2.5}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         )}
       </Card>
 
-      {/* Son Kontroller ve Hızlı Düzenleme */}
+      {/* Kesinti Geçmişi ve Site Ayarları */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="p-6">
-          <h2 className="text-lg font-bold mb-4">Son Kontroller (Checks)</h2>
-          <div className="max-h-72 overflow-y-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="border-b uppercase text-muted-foreground">
-                <tr>
-                  <th className="py-2 px-2">Tarih / Saat</th>
-                  <th className="py-2 px-2">Durum</th>
-                  <th className="py-2 px-2">HTTP</th>
-                  <th className="py-2 px-2">Süre</th>
-                  <th className="py-2 px-2">Detay</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {monitor.checks.map((c) => (
-                  <tr key={c.id}>
-                    <td className="py-2 px-2">{formatDateTR(c.checkedAt)}</td>
-                    <td className="py-2 px-2">
-                      <Badge variant={c.status === "UP" ? "success" : "danger"}>
-                        {c.status}
-                      </Badge>
-                    </td>
-                    <td className="py-2 px-2">{c.httpCode ?? "-"}</td>
-                    <td className="py-2 px-2">
-                      {c.responseMs !== null ? `${c.responseMs} ms` : "-"}
-                    </td>
-                    <td className="py-2 px-2 text-rose-500">{c.error || "OK"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <Card className="p-6 space-y-4">
+          <h2 className="text-lg font-bold">Kesinti Geçmişi (Incidents)</h2>
+          {monitor.incidents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Bu sitede henüz hiçbir kesinti kaydı oluşmadı.
+            </p>
+          ) : (
+            <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
+              {monitor.incidents.map((inc) => {
+                const dur =
+                  (inc.resolvedAt
+                    ? new Date(inc.resolvedAt).getTime()
+                    : Date.now()) - new Date(inc.startedAt).getTime();
+                return (
+                  <div
+                    key={inc.id}
+                    className="p-3.5 rounded-xl border border-border/70 bg-background/50 flex flex-col gap-1.5 text-xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      {inc.resolvedAt ? (
+                        <Badge variant="success">Çözüldü</Badge>
+                      ) : (
+                        <Badge variant="danger">Devam Ediyor</Badge>
+                      )}
+                      <span className="font-bold">
+                        Süre: {formatDurationTR(dur)}
+                      </span>
+                    </div>
+                    <p className="text-muted-foreground">
+                      Başlangıç: {formatDateTR(inc.startedAt)} • Bitiş:{" "}
+                      {inc.resolvedAt
+                        ? formatDateTR(inc.resolvedAt)
+                        : "Hâlâ Kapalı"}
+                    </p>
+                    {inc.reason && (
+                      <p className="text-rose-500 font-mono">
+                        Neden: {inc.reason}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </Card>
 
         <Card className="p-6">
-          <h2 className="text-lg font-bold mb-4">Site Ayarlarını Düzenle</h2>
-          {saveMsg && (
-            <div className="mb-3 text-xs text-emerald-500 font-medium">
-              {saveMsg}
+          <h2 className="text-lg font-bold mb-4">Site İzleme Ayarları</h2>
+          {message && (
+            <div className="mb-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 p-3 text-xs font-medium text-emerald-500">
+              {message}
             </div>
           )}
-          <form onSubmit={handleSaveSettings} className="space-y-3">
+          <form onSubmit={handleSaveSettings} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium mb-1">Site Adı</label>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Site Adı
+              </label>
               <Input
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
+                required
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium mb-1">
-                  Kontrol Aralığı (sn)
-                </label>
-                <select
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  value={editInterval}
-                  onChange={(e) => setEditInterval(Number(e.target.value))}
-                >
-                  <option value={60}>60 sn (1 dk)</option>
-                  <option value={300}>300 sn (5 dk)</option>
-                  <option value={600}>600 sn (10 dk)</option>
-                  <option value={1800}>1800 sn (30 dk)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1">
-                  Timeout (sn)
-                </label>
-                <Input
-                  type="number"
-                  min={2}
-                  max={60}
-                  value={editTimeout}
-                  onChange={(e) => setEditTimeout(Number(e.target.value))}
-                />
-              </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Site URL
+              </label>
+              <Input
+                type="url"
+                value={editUrl}
+                onChange={(e) => setEditUrl(e.target.value)}
+                required
+              />
             </div>
-            {monitor.type === "KEYWORD" && (
-              <div>
-                <label className="block text-xs font-medium mb-1">
-                  Aranacak Anahtar Kelime
-                </label>
-                <Input
-                  value={editKeyword}
-                  onChange={(e) => setEditKeyword(e.target.value)}
-                />
-              </div>
-            )}
-            <Button type="submit" size="sm" className="gap-1.5">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Kontrol Aralığı
+              </label>
+              <select
+                className="h-10 w-full rounded-xl border border-input bg-background/80 px-3.5 text-sm"
+                value={editInterval}
+                onChange={(e) => setEditInterval(Number(e.target.value))}
+              >
+                <option value={60}>1 Dakika</option>
+                <option value={300}>5 Dakika</option>
+                <option value={600}>10 Dakika</option>
+                <option value={1800}>30 Dakika</option>
+              </select>
+            </div>
+            <Button type="submit" size="sm" disabled={saving} className="gap-1.5">
               <Save className="h-4 w-4" />
-              Değişiklikleri Kaydet
+              {saving ? "Kaydediliyor..." : "Değişiklikleri Kaydet"}
             </Button>
           </form>
         </Card>
