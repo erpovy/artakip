@@ -27,9 +27,8 @@ fi
 git fetch origin main
 git reset --hard origin/main
 
-if [ ! -f ".env" ]; then
-  RAND_SECRET="$(openssl rand -hex 32)"
-  cat > .env <<EOF
+RAND_SECRET="$(openssl rand -hex 32)"
+cat > .env <<EOF
 DATABASE_URL="file:./artakip.db"
 NEXTAUTH_URL="https://artakip.artovy.com"
 NEXT_PUBLIC_APP_URL="https://artakip.artovy.com"
@@ -43,8 +42,7 @@ SMTP_USER="bildirim@artovy.com"
 SMTP_PASS=""
 SMTP_FROM="Artakip Uptime <bildirim@artovy.com>"
 EOF
-  echo ".env dosyası oluşturuldu."
-fi
+echo ".env dosyası güncellendi."
 
 echo "=== 3. Paketler Yükleniyor (npm install) ==="
 npm install --no-audit --no-fund
