@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
         name: parsed.data.name.trim(),
         passwordHash,
         verificationToken,
+        emailVerified: new Date(),
         plan: "FREE",
         planSiteLimit: 5,
         statusPageSlug,

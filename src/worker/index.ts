@@ -112,12 +112,10 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
     })
     .catch((err) => console.error("[Check Create Warning]", err));
 
-  // 3. İlk hatada hemen 5 sn sonra retry planla
+  // 3. İlk hatada hemen 1 sn sonra doğrulama (retry) kontrolünü yap
   if (transition.shouldRetryImmediately) {
-    void enqueueImmediateMonitorCheck(monitor.id, 5000).catch(() => null);
-    setTimeout(() => {
-      executeMonitorCheck(monitor.id).catch(() => null);
-    }, 5000);
+    await new Promise((r) => setTimeout(r, 1000));
+    await executeMonitorCheck(monitor.id).catch(() => null);
     return;
   }
 

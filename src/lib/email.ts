@@ -406,43 +406,71 @@ export async function sendEmailWithRetry(params: {
   const secure = process.env.SMTP_SECURE === "true";
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
-  const from = process.env.SMTP_FROM || "Artakip Uptime <bildirim@artakip.com>";
+  const rawFrom = process.env.SMTP_FROM;
+  const from =
+    rawFrom && !rawFrom.includes("example.com")
+      ? rawFrom
+      : "Artakip Uptime <noreply@artakip.artovy.com>";
 
   let lastError = "";
+  const hasCustomSmtp = Boolean(host && host !== "smtp.example.com");
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      if (!host || host === "smtp.example.com") {
-        // Geliştirme ortamında SMTP yapılandırılmamışsa konsola simüle et ve başarılı kaydet
+      if (hasCustomSmtp) {
+        const transporter = nodemailer.createTransport({
+          host,
+          port,
+          secure,
+          auth: user && user !== "apikey" ? { user, pass } : undefined,
+          tls: { rejectUnauthorized: false },
+          connectionTimeout: 6000,
+        });
+
+        await transporter.sendMail({
+          from,
+          to: params.toEmail,
+          subject: params.template.subject,
+          text: params.template.text,
+          html: params.template.html,
+        });
+      } else if (process.platform === "linux") {
+        // cPanel / WHM yerel Exim (127.0.0.1:25) veya /usr/sbin/sendmail ile doğrudan gönderim
+        try {
+          const localSmtp = nodemailer.createTransport({
+            host: "127.0.0.1",
+            port: 25,
+            secure: false,
+            tls: { rejectUnauthorized: false },
+            connectionTimeout: 5000,
+          });
+          await localSmtp.sendMail({
+            from,
+            to: params.toEmail,
+            subject: params.template.subject,
+            text: params.template.text,
+            html: params.template.html,
+          });
+        } catch {
+          const sendmailTransport = nodemailer.createTransport({
+            sendmail: true,
+            newline: "unix",
+            path: "/usr/sbin/sendmail",
+          });
+          await sendmailTransport.sendMail({
+            from,
+            to: params.toEmail,
+            subject: params.template.subject,
+            text: params.template.text,
+            html: params.template.html,
+          });
+        }
+      } else {
+        // Yerel Windows/Mac geliştirme ortamında SMTP yoksa konsola simüle et
         console.log(
           `[EMAIL-SIMULATED] To: ${params.toEmail} | Subject: ${params.template.subject}`
         );
-        await prisma.notificationLog.create({
-          data: {
-            userId: params.userId,
-            monitorId: params.monitorId ?? null,
-            type: params.type,
-            toEmail: params.toEmail,
-            success: true,
-          },
-        });
-        return { success: true };
       }
-
-      const transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure,
-        auth: user ? { user, pass } : undefined,
-      });
-
-      await transporter.sendMail({
-        from,
-        to: params.toEmail,
-        subject: params.template.subject,
-        text: params.template.text,
-        html: params.template.html,
-      });
 
       await prisma.notificationLog.create({
         data: {

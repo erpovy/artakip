@@ -142,6 +142,13 @@ function requestWithNodeHttp(
           location
         ) {
           res.resume();
+          if (/suspendedpage\.cgi|\/cgi-sys\/suspended/i.test(location)) {
+            finishResolve({
+              status: 503,
+              body: "Account Suspended (cgi-sys/suspendedpage.cgi)",
+            });
+            return;
+          }
           try {
             const nextUrl = new URL(location, parsed).toString();
             requestWithNodeHttp(nextUrl, effectiveTimeoutMs, followRedirects, redirectsLeft - 1)
@@ -247,6 +254,20 @@ export async function performHttpProbe(
     }
 
     const responseMs = Date.now() - start;
+
+    // WHM / cPanel askıya alınmış hesap (Account Suspended) tespiti
+    if (
+      /cgi-sys\/suspendedpage\.cgi|<title>\s*Account Suspended\s*<\/title>|This Account has been suspended/i.test(
+        bodyText
+      )
+    ) {
+      return {
+        isUp: false,
+        httpCode: 503,
+        responseMs,
+        error: "WHM/cPanel Hesabı Askıya Alınmış (Account Suspended)",
+      };
+    }
 
     if (!isHttpStatusExpected(httpCode, input.expectedStatus)) {
       return {
