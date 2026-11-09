@@ -1,0 +1,15 @@
+# Caddy Otomatik HTTPS (Let's Encrypt) Yapılandırması
+# Kullanım: /etc/caddy/Caddyfile içine kopyalayın ve alan adınızı güncelleyin.
+
+uptime.example.com {
+    encode zstd gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+
+    reverse_proxy localhost:3000
+}

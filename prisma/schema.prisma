@@ -1,0 +1,160 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   String                @id @default(cuid())
+  email                String                @unique
+  passwordHash         String
+  name                 String?
+  role                 Role                  @default(USER)
+  emailVerified        DateTime?
+  verificationToken    String?               @unique
+  resetToken           String?               @unique
+  resetTokenExpiry     DateTime?
+  suspended            Boolean               @default(false)
+  plan                 Plan                  @default(FREE)
+  planSiteLimit        Int                   @default(5)
+  stripeCustomerId     String?               @unique
+  stripeSubscriptionId String?               @unique
+  subscriptionStatus   String?
+  statusPageSlug       String?               @unique
+  locale               String                @default("tr")
+  createdAt            DateTime              @default(now())
+  monitors             Monitor[]
+  settings             NotificationSettings?
+  contacts             AlertContact[]
+}
+
+model Monitor {
+  id                 String      @id @default(cuid())
+  userId             String
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name               String
+  url                String
+  type               MonitorType @default(HTTP)
+  keyword            String?
+  intervalSeconds    Int         @default(300)
+  timeoutSeconds     Int         @default(15)
+  expectedStatus     String      @default("200-399")
+  followRedirects    Boolean     @default(true)
+  paused             Boolean     @default(false)
+  checkSsl           Boolean     @default(true)
+  wpCheckPath        String?
+  currentStatus      Status      @default(UNKNOWN)
+  lastCheckedAt      DateTime?
+  lastStatusChangeAt DateTime?
+  consecutiveFails   Int         @default(0)
+  sslExpiresAt       DateTime?
+  sslNotifiedAt      DateTime?
+  tags               String[]
+  createdAt          DateTime    @default(now())
+  checks             Check[]
+  incidents          Incident[]
+
+  @@index([userId])
+}
+
+model Check {
+  id         BigInt   @id @default(autoincrement())
+  monitorId  String
+  monitor    Monitor  @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  checkedAt  DateTime @default(now())
+  status     Status
+  httpCode   Int?
+  responseMs Int?
+  error      String?
+
+  @@index([monitorId, checkedAt])
+}
+
+model Incident {
+  id         String    @id @default(cuid())
+  monitorId  String
+  monitor    Monitor   @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  startedAt  DateTime
+  resolvedAt DateTime?
+  reason     String?
+
+  @@index([monitorId, startedAt])
+}
+
+model NotificationSettings {
+  id                  String  @id @default(cuid())
+  userId              String  @unique
+  user                User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notifyOnDown        Boolean @default(true)
+  notifyOnUp          Boolean @default(true)
+  notifyOnSslExpiry   Boolean @default(true)
+  sslExpiryDaysBefore Int     @default(14)
+  failuresBeforeDown  Int     @default(2)
+  digestDaily         Boolean @default(false)
+  digestWeekly        Boolean @default(false)
+  quietHoursStart     String?
+  quietHoursEnd       String?
+  timezone            String  @default("Europe/Istanbul")
+  webhookUrl          String?
+  slackWebhookUrl     String?
+  telegramChatId      String?
+}
+
+model AlertContact {
+  id          String  @id @default(cuid())
+  userId      String
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email       String
+  verified    Boolean @default(false)
+  verifyToken String? @unique
+}
+
+model NotificationLog {
+  id        String   @id @default(cuid())
+  userId    String
+  monitorId String?
+  type      String
+  toEmail   String
+  success   Boolean
+  error     String?
+  sentAt    DateTime @default(now())
+
+  @@index([userId, sentAt])
+}
+
+model PlanConfig {
+  plan               Plan     @id
+  name               String
+  siteLimit          Int
+  minIntervalSeconds Int
+  retentionDays      Int
+  priceTry           Int
+  stripePriceId      String?
+  updatedAt          DateTime @updatedAt
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum Plan {
+  FREE
+  STARTER
+  PRO
+  AGENCY
+}
+
+enum MonitorType {
+  HTTP
+  KEYWORD
+}
+
+enum Status {
+  UP
+  DOWN
+  UNKNOWN
+}
