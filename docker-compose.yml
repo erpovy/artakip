@@ -47,7 +47,8 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-artakip}:${POSTGRES_PASSWORD:-artakip_secret}@postgres:5432/${POSTGRES_DB:-artakip}?schema=public
       REDIS_URL: redis://redis:6379
-      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-https://artakip.artovy.com}
+      EMBEDDED_WORKER: "false"
     depends_on:
       postgres:
         condition: service_healthy
