@@ -80,9 +80,9 @@ export async function GET(req: NextRequest) {
   });
 
   if (pendingMonitors.length > 0) {
-    await Promise.allSettled(
-      pendingMonitors.map((pm) => executeMonitorCheck(pm.id))
-    );
+    for (const pm of pendingMonitors) {
+      await executeMonitorCheck(pm.id).catch(() => null);
+    }
   }
 
   const [total, monitors] = await Promise.all([

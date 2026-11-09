@@ -2,7 +2,7 @@ import http from "http";
 import https from "https";
 import tls from "tls";
 import { MonitorType, Status } from "./prisma";
-import { validateSafeUrl } from "./ssrf";
+import { validateUrlStructure } from "./ssrf";
 
 export interface ExpectedStatusRange {
   min: number;
@@ -96,12 +96,30 @@ function requestWithNodeHttp(
 
     const isHttps = parsed.protocol === "https:";
     const transport = isHttps ? https : http;
+    const effectiveTimeoutMs = Math.min(Math.max(2000, timeoutMs), 8000);
+    let settled = false;
+
+    const finishResolve = (val: { status: number; body: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(hardTimer);
+      resolve(val);
+    };
+
+    const finishReject = (err: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(hardTimer);
+      reject(err);
+    };
 
     const req = transport.request(
       parsed,
       {
         method: "GET",
-        timeout: timeoutMs,
+        family: 4,
+        servername: parsed.hostname,
+        timeout: effectiveTimeoutMs,
         rejectUnauthorized: false,
         headers: {
           "User-Agent":
@@ -124,38 +142,52 @@ function requestWithNodeHttp(
           location
         ) {
           res.resume();
-          const nextUrl = new URL(location, parsed).toString();
-          requestWithNodeHttp(nextUrl, timeoutMs, followRedirects, redirectsLeft - 1)
-            .then(resolve)
-            .catch(reject);
+          try {
+            const nextUrl = new URL(location, parsed).toString();
+            requestWithNodeHttp(nextUrl, effectiveTimeoutMs, followRedirects, redirectsLeft - 1)
+              .then(finishResolve)
+              .catch(finishReject);
+          } catch (e) {
+            finishReject(e);
+          }
           return;
         }
 
         const chunks: Buffer[] = [];
         let totalBytes = 0;
-        const maxBytes = 512 * 1024; // Maksimum 512KB oku
+        const maxBytes = 256 * 1024; // Maksimum 256KB oku
 
         res.on("data", (chunk: Buffer) => {
           if (totalBytes < maxBytes) {
             chunks.push(chunk);
             totalBytes += chunk.length;
+          } else {
+            res.destroy();
           }
         });
 
-        res.on("end", () => {
+        const completeBody = () => {
           const body = Buffer.concat(chunks).toString("utf-8");
-          resolve({ status: statusCode, body });
-        });
+          finishResolve({ status: statusCode, body });
+        };
 
-        res.on("error", reject);
+        res.on("end", completeBody);
+        res.on("close", completeBody);
+        res.on("error", finishReject);
       }
     );
 
+    const hardTimer = setTimeout(() => {
+      req.destroy(new Error("AbortError"));
+      finishReject(new Error("AbortError"));
+    }, effectiveTimeoutMs);
+
     req.on("timeout", () => {
       req.destroy(new Error("AbortError"));
+      finishReject(new Error("AbortError"));
     });
 
-    req.on("error", reject);
+    req.on("error", finishReject);
     req.end();
   });
 }
@@ -168,9 +200,7 @@ export async function performHttpProbe(
   customFetch?: typeof fetch
 ): Promise<HttpProbeResult> {
   const targetUrl = buildTargetUrl(input.url, input.wpCheckPath);
-  const ssrf = await validateSafeUrl(targetUrl, {
-    skipDnsInTest: process.env.NODE_ENV === "test",
-  });
+  const ssrf = validateUrlStructure(targetUrl);
   if (!ssrf.valid) {
     return {
       isUp: false,

@@ -7,7 +7,7 @@ export async function register() {
       await import("./worker/index");
     const { prisma } = await import("./lib/prisma");
 
-    const concurrency = Number(process.env.WORKER_CONCURRENCY || 20);
+    const concurrency = Number(process.env.WORKER_CONCURRENCY || 3);
     let isRunningTick = false;
 
     // Plesk / cPanel / aaPanel gibi tek süreçli (single-process) ortamlarda

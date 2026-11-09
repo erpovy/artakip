@@ -77,19 +77,7 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
   const settings = monitor.user.settings;
   const failuresBeforeDown = settings?.failuresBeforeDown ?? 2;
 
-  // 1. Check kaydını yaz
-  await prisma.check.create({
-    data: {
-      monitorId: monitor.id,
-      checkedAt: now,
-      status: probe.isUp ? "UP" : "DOWN",
-      httpCode: probe.httpCode,
-      responseMs: probe.responseMs,
-      error: probe.error,
-    },
-  });
-
-  // 2. Durum geçişini hesapla
+  // 1. Durum geçişini hesapla ve Monitor tablosunu hemen güncelle
   const transition = evaluateMonitorStateTransition({
     previousStatus: monitor.currentStatus as "UP" | "DOWN" | "UNKNOWN",
     previousConsecutiveFails: monitor.consecutiveFails,
@@ -110,9 +98,23 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
     },
   });
 
+  // 2. Check kaydını yaz
+  await prisma.check
+    .create({
+      data: {
+        monitorId: monitor.id,
+        checkedAt: now,
+        status: probe.isUp ? "UP" : "DOWN",
+        httpCode: probe.httpCode,
+        responseMs: probe.responseMs,
+        error: probe.error,
+      },
+    })
+    .catch((err) => console.error("[Check Create Warning]", err));
+
   // 3. İlk hatada hemen 5 sn sonra retry planla
   if (transition.shouldRetryImmediately) {
-    await enqueueImmediateMonitorCheck(monitor.id, 5000);
+    void enqueueImmediateMonitorCheck(monitor.id, 5000).catch(() => null);
     setTimeout(() => {
       executeMonitorCheck(monitor.id).catch(() => null);
     }, 5000);
@@ -128,13 +130,15 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
   // 4. UP -> DOWN geçişi: Incident oluştur ve bildirim tetikle
   if (transition.openIncident && transition.triggerEmail === "DOWN") {
     const reason = probe.error || "Site yanıt vermiyor";
-    await prisma.incident.create({
-      data: {
-        monitorId: monitor.id,
-        startedAt: transition.incidentStartedAt || now,
-        reason,
-      },
-    });
+    await prisma.incident
+      .create({
+        data: {
+          monitorId: monitor.id,
+          startedAt: transition.incidentStartedAt || now,
+          reason,
+        },
+      })
+      .catch((err) => console.error("[Incident Create Warning]", err));
 
     const policy = evaluateNotificationPolicy({
       eventType: "DOWN",
@@ -182,13 +186,13 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
             timezone: tz,
           });
           for (const email of recipients) {
-            await enqueueEmailNotification({
+            void enqueueEmailNotification({
               userId: monitor.userId,
               monitorId: monitor.id,
               type: "DOWN",
               toEmail: email,
               template: stormTpl,
-            });
+            }).catch(() => null);
           }
         }
       } else {
@@ -201,18 +205,18 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
           timezone: tz,
         });
         for (const email of recipients) {
-          await enqueueEmailNotification({
+          void enqueueEmailNotification({
             userId: monitor.userId,
             monitorId: monitor.id,
             type: "DOWN",
             toEmail: email,
             template: downTpl,
-          });
+          }).catch(() => null);
         }
       }
     }
 
-    await dispatchExternalWebhooks({
+    void dispatchExternalWebhooks({
       webhookUrl: settings?.webhookUrl,
       slackWebhookUrl: settings?.slackWebhookUrl,
       telegramChatId: settings?.telegramChatId,
@@ -225,7 +229,7 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
         reason,
         timestamp: now.toISOString(),
       },
-    });
+    }).catch(() => null);
   }
 
   // 5. DOWN -> UP geçişi: Açık Incident'ı kapat ve kesinti süresiyle UP maili gönder
@@ -267,17 +271,17 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
       });
 
       for (const email of recipients) {
-        await enqueueEmailNotification({
+        void enqueueEmailNotification({
           userId: monitor.userId,
           monitorId: monitor.id,
           type: "UP",
           toEmail: email,
           template: upTpl,
-        });
+        }).catch(() => null);
       }
     }
 
-    await dispatchExternalWebhooks({
+    void dispatchExternalWebhooks({
       webhookUrl: settings?.webhookUrl,
       slackWebhookUrl: settings?.slackWebhookUrl,
       telegramChatId: settings?.telegramChatId,
@@ -290,7 +294,7 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
         durationMs,
         timestamp: now.toISOString(),
       },
-    });
+    }).catch(() => null);
   }
 }
 

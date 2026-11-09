@@ -21,17 +21,20 @@ let redisAvailable = false;
 
 export function getRedisConnection(): IORedis | null {
   const redisUrl = process.env.REDIS_URL;
-  if (!redisUrl) return null;
+  // cPanel / tek sunucu kurulumlarında varsayılan localhost Redis kapalıysa kuyrukta takılmayı önle
+  if (!redisUrl || process.env.ENABLE_REDIS !== "true") return null;
   if (redisConnection) return redisConnection;
 
   try {
     redisConnection = new IORedis(redisUrl, {
-      maxRetriesPerRequest: null,
+      maxRetriesPerRequest: 1,
       enableReadyCheck: false,
+      enableOfflineQueue: false,
+      connectTimeout: 1500,
       lazyConnect: true,
       retryStrategy(times) {
-        if (times > 3) return null;
-        return Math.min(times * 200, 1000);
+        if (times > 2) return null;
+        return 200;
       },
     });
     redisConnection.on("ready", () => {

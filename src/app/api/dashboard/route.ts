@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { executeMonitorCheck } from "@/worker/index";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +9,16 @@ export async function GET() {
   const user = await getSessionUser();
   if (!user) {
     return NextResponse.json({ error: "Oturum açmanız gerekiyor." }, { status: 401 });
+  }
+
+  const pendingMonitors = await prisma.monitor.findMany({
+    where: { userId: user.id, paused: false, currentStatus: "UNKNOWN" },
+    select: { id: true },
+    take: 10,
+  });
+
+  for (const pm of pendingMonitors) {
+    await executeMonitorCheck(pm.id).catch(() => null);
   }
 
   const since24h = new Date(Date.now() - 24 * 3600 * 1000);
