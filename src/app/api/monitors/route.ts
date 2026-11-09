@@ -66,6 +66,24 @@ export async function GET(req: NextRequest) {
   else if (sort === "lastChecked") orderBy = { lastCheckedAt: "desc" };
 
   const since30d = new Date(Date.now() - 30 * 86_400_000);
+  const forceCheck = searchParams.get("check") === "1";
+
+  // Henüz hiç kontrol edilmemiş (UNKNOWN) veya süresi gelmiş siteleri anında kontrol et
+  const pendingMonitors = await prisma.monitor.findMany({
+    where: {
+      userId: user.id,
+      paused: false,
+      ...(forceCheck ? {} : { currentStatus: "UNKNOWN" }),
+    },
+    select: { id: true },
+    take: 20,
+  });
+
+  if (pendingMonitors.length > 0) {
+    await Promise.allSettled(
+      pendingMonitors.map((pm) => executeMonitorCheck(pm.id))
+    );
+  }
 
   const [total, monitors] = await Promise.all([
     prisma.monitor.count({ where }),

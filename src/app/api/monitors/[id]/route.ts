@@ -8,6 +8,7 @@ import {
   scheduleMonitorRepeatableJob,
   removeMonitorRepeatableJob,
 } from "@/lib/queue";
+import { executeMonitorCheck } from "@/worker/index";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,15 @@ export async function GET(
   const user = await getSessionUser();
   if (!user) {
     return NextResponse.json({ error: "Oturum açmanız gerekiyor." }, { status: 401 });
+  }
+
+  const initialCheck = await prisma.monitor.findFirst({
+    where: { id: params.id, userId: user.id },
+    select: { id: true, currentStatus: true, paused: true },
+  });
+
+  if (initialCheck && initialCheck.currentStatus === "UNKNOWN" && !initialCheck.paused) {
+    await executeMonitorCheck(initialCheck.id).catch(() => null);
   }
 
   const monitor = await prisma.monitor.findFirst({

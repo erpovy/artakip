@@ -39,7 +39,7 @@ export default function MonitorsListPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  const loadMonitors = useCallback(async () => {
+  const loadMonitors = useCallback(async (forceCheck = false) => {
     setLoading(true);
     const params = new URLSearchParams({
       page: String(page),
@@ -49,6 +49,7 @@ export default function MonitorsListPage() {
     if (q) params.set("q", q);
     if (statusFilter) params.set("status", statusFilter);
     if (tagFilter) params.set("tag", tagFilter);
+    if (forceCheck) params.set("check", "1");
 
     const res = await fetch(`/api/monitors?${params.toString()}`, {
       cache: "no-store",
@@ -84,9 +85,9 @@ export default function MonitorsListPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={loadMonitors}>
+          <Button variant="outline" size="sm" onClick={() => loadMonitors(true)}>
             <RefreshCw className="h-4 w-4 mr-1.5" />
-            Yenile
+            Şimdi Kontrol Et & Yenile
           </Button>
           <Link href="/dashboard/monitors/import">
             <Button variant="outline" size="sm">
