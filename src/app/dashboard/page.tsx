@@ -3,10 +3,10 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  Globe,
   CheckCircle2,
   AlertTriangle,
   Activity,
-  Gauge,
   PlusCircle,
   Upload,
   ArrowUpRight,
@@ -16,32 +16,38 @@ import {
 import { Card, Badge, Button, StatusPulse } from "@/components/ui/primitives";
 import { formatDateTR, formatDurationTR } from "@/lib/utils";
 
-interface DashboardSummary {
-  total: number;
-  up: number;
-  down: number;
-  paused: number;
-  unknown: number;
-  uptime24h: number;
-  avgLatencyMs: number;
+interface DashboardData {
+  user: {
+    name?: string;
+    email: string;
+    plan: string;
+    planSiteLimit: number;
+    emailVerified: boolean;
+  };
+  summary: {
+    totalMonitors: number;
+    upMonitors: number;
+    downMonitors: number;
+    pausedMonitors: number;
+    overallUptime: number;
+    incidents24hCount: number;
+  };
   recentIncidents: Array<{
     id: string;
     monitorId: string;
-    monitorName: string;
-    monitorUrl: string;
     startedAt: string;
     resolvedAt: string | null;
     reason: string | null;
-    durationMs: number;
+    monitor: { id: string; name: string; url: string };
   }>;
 }
 
 export default function DashboardPage() {
-  const [data, setData] = useState<DashboardSummary | null>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/dashboard")
+    fetch("/api/dashboard", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         setData(d);
@@ -64,12 +70,21 @@ export default function DashboardPage() {
     );
   }
 
-  const downCount = data?.down ?? 0;
-  const allHealthy = downCount === 0 && (data?.total ?? 0) > 0;
+  const s = data?.summary || {
+    totalMonitors: 0,
+    upMonitors: 0,
+    downMonitors: 0,
+    pausedMonitors: 0,
+    overallUptime: 100,
+    incidents24hCount: 0,
+  };
+
+  const downCount = s.downMonitors;
+  const allHealthy = downCount === 0 && s.totalMonitors > 0;
 
   return (
     <div className="space-y-8">
-      {/* Üst Başlık ve Sistem Sağlık Bannerı */}
+      {/* Üst Sistem Sağlık Bannerı */}
       <div
         className={`rounded-2xl border p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all ${
           downCount > 0
@@ -95,14 +110,22 @@ export default function DashboardPage() {
                   ? "Tüm Sistemler Sorunsuz Çalışıyor"
                   : "İzleme Komuta Merkezine Hoş Geldiniz"}
               </h1>
-              <Badge variant={downCount > 0 ? "danger" : allHealthy ? "success" : "outline"}>
-                {downCount > 0 ? "Alarm Aktif" : allHealthy ? "100% Operasyonel" : "Hazır"}
+              <Badge
+                variant={
+                  downCount > 0 ? "danger" : allHealthy ? "success" : "outline"
+                }
+              >
+                {downCount > 0
+                  ? "Alarm Aktif"
+                  : allHealthy
+                  ? "100% Operasyonel"
+                  : "Hazır"}
               </Badge>
             </div>
             <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-              Toplam <strong>{data?.total ?? 0}</strong> web sitesi gerçek zamanlı olarak
-              denetleniyor • Son 24 saatlik çalışma oranı{" "}
-              <strong>%{data?.uptime24h ?? 100}</strong>
+              Toplam <strong>{s.totalMonitors}</strong> web sitesi gerçek zamanlı
+              olarak denetleniyor • Genel çalışma oranı{" "}
+              <strong>%{s.overallUptime}</strong>
             </p>
           </div>
         </div>
@@ -110,7 +133,8 @@ export default function DashboardPage() {
         <div className="flex flex-wrap gap-2.5 shrink-0">
           <Link href="/dashboard/monitors">
             <Button variant="outline" size="sm" className="gap-1.5">
-              Tüm Siteleri Gör <ArrowUpRight className="h-3.5 w-3.5" />
+              Tüm Siteleri Gör ({s.totalMonitors}){" "}
+              <ArrowUpRight className="h-3.5 w-3.5" />
             </Button>
           </Link>
         </div>
@@ -118,88 +142,89 @@ export default function DashboardPage() {
 
       {/* 4'lü Bento KPI Kartları */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="p-5 relative overflow-hidden group hover:border-primary/40 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Toplam İzlenen Site
+            </span>
+            <div className="h-9 w-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+              <Globe className="h-5 w-5" />
+            </div>
+          </div>
+          <p className="text-3xl font-extrabold mt-3">
+            {s.totalMonitors}{" "}
+            <span className="text-sm font-normal text-muted-foreground">
+              / {data?.user?.planSiteLimit ?? 5}
+            </span>
+          </p>
+          <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
+            <span>Aktif plan limiti</span>
+            <span>{s.pausedMonitors} duraklatıldı</span>
+          </div>
+        </Card>
+
         <Card className="p-5 relative overflow-hidden group hover:border-emerald-500/40 transition-all">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Açık Siteler (UP)
+              Şu An Açık (UP)
             </span>
             <div className="h-9 w-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500">
               <CheckCircle2 className="h-5 w-5" />
             </div>
           </div>
           <p className="text-3xl font-extrabold mt-3 text-emerald-500">
-            {data?.up ?? 0}
+            {s.upMonitors}
           </p>
           <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-            <span>Toplam {data?.total ?? 0} site</span>
-            <span>{data?.paused ?? 0} duraklatıldı</span>
+            <span>Sorunsuz yanıt veriyor</span>
           </div>
         </Card>
 
         <Card className="p-5 relative overflow-hidden group hover:border-rose-500/40 transition-all">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Kapalı Siteler (DOWN)
+              Şu An Kapalı (DOWN)
             </span>
             <div className="h-9 w-9 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500">
               <AlertTriangle className="h-5 w-5" />
             </div>
           </div>
           <p className="text-3xl font-extrabold mt-3 text-rose-500">
-            {data?.down ?? 0}
+            {s.downMonitors}
           </p>
           <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-            <span>Anlık kesinti</span>
-            <span>{data?.unknown ?? 0} kontrol bekliyor</span>
+            <span>Son 24 saatte {s.incidents24hCount} olay</span>
           </div>
         </Card>
 
         <Card className="p-5 relative overflow-hidden group hover:border-primary/40 transition-all">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Son 24 Saat Uptime
+              Genel Uptime (30 Gün)
             </span>
             <div className="h-9 w-9 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
               <Activity className="h-5 w-5" />
             </div>
           </div>
-          <p className="text-3xl font-extrabold mt-3">
-            %{data?.uptime24h ?? 100}
-          </p>
+          <p className="text-3xl font-extrabold mt-3">%{s.overallUptime}</p>
           <div className="mt-3 w-full h-1.5 rounded-full bg-muted overflow-hidden">
             <div
               className="h-full bg-gradient-to-r from-emerald-500 to-blue-500 rounded-full transition-all"
-              style={{ width: `${Math.min(100, data?.uptime24h ?? 100)}%` }}
+              style={{ width: `${Math.min(100, s.overallUptime)}%` }}
             />
           </div>
         </Card>
-
-        <Card className="p-5 relative overflow-hidden group hover:border-amber-500/40 transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Ort. Yanıt Süresi
-            </span>
-            <div className="h-9 w-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500">
-              <Gauge className="h-5 w-5" />
-            </div>
-          </div>
-          <p className="text-3xl font-extrabold mt-3">
-            {data?.avgLatencyMs ?? 0}{" "}
-            <span className="text-base font-semibold text-muted-foreground">ms</span>
-          </p>
-          <p className="text-xs text-muted-foreground mt-3">
-            Son 24 saatlik HTTP yanıt ortalaması
-          </p>
-        </Card>
       </div>
 
-      {/* Son 24 Saat Kesinti Zaman Çizelgesi */}
+      {/* Son 24 Saatteki Kesinti Zaman Çizelgesi */}
       <Card className="p-6 space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <Clock className="h-5 w-5 text-primary" />
             <div>
-              <h2 className="text-lg font-bold">Son 24 Saat Kesinti Zaman Çizelgesi</h2>
+              <h2 className="text-lg font-bold">
+                Son 24 Saat Kesinti Zaman Çizelgesi
+              </h2>
               <p className="text-xs text-muted-foreground">
                 Kapanan ve tekrar açılan sitelerinizin anlık olay kayıtları
               </p>
@@ -217,9 +242,12 @@ export default function DashboardPage() {
             <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 flex items-center justify-center mx-auto">
               <ShieldCheck className="h-6 w-6" />
             </div>
-            <p className="font-bold text-sm">Son 24 saat içinde hiçbir kesinti yaşanmadı!</p>
+            <p className="font-bold text-sm">
+              Son 24 saat içinde hiçbir kesinti yaşanmadı!
+            </p>
             <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              İzlenen tüm web siteleriniz belirlenen kontrol aralıklarında kesintisiz yanıt verdi.
+              İzlenen tüm web siteleriniz belirlenen kontrol aralıklarında
+              kesintisiz yanıt verdi.
             </p>
           </div>
         ) : (
@@ -229,43 +257,56 @@ export default function DashboardPage() {
                 <tr>
                   <th className="py-3.5 px-4">Site</th>
                   <th className="py-3.5 px-4">Durum</th>
-                  <th className="py-3.5 px-4">Başlangıç</th>
-                  <th className="py-3.5 px-4">Bitiş</th>
-                  <th className="py-3.5 px-4">Süre</th>
+                  <th className="py-3.5 px-4">Kapanma Zamanı</th>
+                  <th className="py-3.5 px-4">Açılma Zamanı</th>
+                  <th className="py-3.5 px-4">Kesinti Süresi</th>
                   <th className="py-3.5 px-4">Hata Nedeni</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
-                {data.recentIncidents.map((inc) => (
-                  <tr key={inc.id} className="hover:bg-muted/25 transition-colors">
-                    <td className="py-3.5 px-4 font-semibold">
-                      <Link
-                        href={`/dashboard/monitors/${inc.monitorId}`}
-                        className="hover:text-primary transition-colors flex items-center gap-1.5"
-                      >
-                        {inc.monitorName}
-                        <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
-                      </Link>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      {inc.resolvedAt ? (
-                        <Badge variant="success">Çözüldü</Badge>
-                      ) : (
-                        <Badge variant="danger">Devam Ediyor</Badge>
-                      )}
-                    </td>
-                    <td className="py-3.5 px-4 text-xs">{formatDateTR(inc.startedAt)}</td>
-                    <td className="py-3.5 px-4 text-xs">
-                      {inc.resolvedAt ? formatDateTR(inc.resolvedAt) : "Hâlâ Kapalı"}
-                    </td>
-                    <td className="py-3.5 px-4 font-bold text-xs">
-                      {formatDurationTR(inc.durationMs)}
-                    </td>
-                    <td className="py-3.5 px-4 text-rose-500 text-xs font-mono">
-                      {inc.reason || "-"}
-                    </td>
-                  </tr>
-                ))}
+                {data.recentIncidents.map((inc) => {
+                  const durationMs =
+                    (inc.resolvedAt
+                      ? new Date(inc.resolvedAt).getTime()
+                      : Date.now()) - new Date(inc.startedAt).getTime();
+                  return (
+                    <tr
+                      key={inc.id}
+                      className="hover:bg-muted/25 transition-colors"
+                    >
+                      <td className="py-3.5 px-4 font-semibold">
+                        <Link
+                          href={`/dashboard/monitors/${inc.monitor.id}`}
+                          className="hover:text-primary transition-colors inline-flex items-center gap-1.5"
+                        >
+                          {inc.monitor.name}
+                          <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Link>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        {inc.resolvedAt ? (
+                          <Badge variant="success">Çözüldü (Açıldı)</Badge>
+                        ) : (
+                          <Badge variant="danger">Devam Ediyor (Kapalı)</Badge>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4 text-xs">
+                        {formatDateTR(inc.startedAt)}
+                      </td>
+                      <td className="py-3.5 px-4 text-xs">
+                        {inc.resolvedAt
+                          ? formatDateTR(inc.resolvedAt)
+                          : "Hâlâ Kapalı"}
+                      </td>
+                      <td className="py-3.5 px-4 font-bold text-xs">
+                        {formatDurationTR(durationMs)}
+                      </td>
+                      <td className="py-3.5 px-4 text-rose-500 text-xs font-mono">
+                        {inc.reason || "-"}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
