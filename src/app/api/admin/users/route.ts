@@ -15,8 +15,8 @@ async function requireTrueAdmin(): Promise<SessionUser | null> {
     id: dbUser.id,
     email: dbUser.email,
     name: dbUser.name,
-    role: dbUser.role,
-    plan: dbUser.plan,
+    role: dbUser.role as "USER" | "ADMIN",
+    plan: dbUser.plan as "FREE" | "STARTER" | "PRO" | "AGENCY",
     planSiteLimit: dbUser.planSiteLimit,
     emailVerified: Boolean(dbUser.emailVerified),
   };
@@ -35,8 +35,8 @@ export async function GET(req: NextRequest) {
     where: q
       ? {
           OR: [
-            { email: { contains: q, mode: "insensitive" } },
-            { name: { contains: q, mode: "insensitive" } },
+            { email: { contains: q } },
+            { name: { contains: q } },
           ],
         }
       : undefined,

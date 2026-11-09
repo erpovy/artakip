@@ -66,7 +66,7 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
   const probe = await performHttpProbe({
     url: monitor.url,
     wpCheckPath: monitor.wpCheckPath,
-    type: monitor.type,
+    type: monitor.type as "HTTP" | "KEYWORD",
     keyword: monitor.keyword,
     timeoutSeconds: monitor.timeoutSeconds,
     expectedStatus: monitor.expectedStatus,
@@ -91,7 +91,7 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
 
   // 2. Durum geçişini hesapla
   const transition = evaluateMonitorStateTransition({
-    previousStatus: monitor.currentStatus,
+    previousStatus: monitor.currentStatus as "UP" | "DOWN" | "UNKNOWN",
     previousConsecutiveFails: monitor.consecutiveFails,
     previousLastStatusChangeAt: monitor.lastStatusChangeAt,
     probeSuccess: probe.isUp,
@@ -368,7 +368,7 @@ export async function runCheckRetentionCleanupJob(): Promise<void> {
   });
 
   for (const u of users) {
-    const retentionDays = DEFAULT_PLANS[u.plan]?.retentionDays ?? 30;
+    const retentionDays = DEFAULT_PLANS[u.plan as keyof typeof DEFAULT_PLANS]?.retentionDays ?? 30;
     const cutoff = new Date(Date.now() - retentionDays * 86_400_000);
     await prisma.check.deleteMany({
       where: {

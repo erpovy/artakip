@@ -3,8 +3,7 @@ import { getServerSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
-import { prisma } from "./prisma";
-import { Plan, Role } from "@prisma/client";
+import { prisma, Plan, Role } from "./prisma";
 
 export interface SessionUser {
   id: string;
@@ -71,8 +70,8 @@ export const authOptions: NextAuthOptions = {
           id: user.id,
           email: user.email,
           name: user.name,
-          role: user.role,
-          plan: user.plan,
+          role: user.role as Role,
+          plan: user.plan as Plan,
           planSiteLimit: user.planSiteLimit,
           emailVerified: Boolean(user.emailVerified),
         };
@@ -134,8 +133,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
             id: target.id,
             email: target.email,
             name: target.name,
-            role: target.role,
-            plan: target.plan,
+            role: target.role as Role,
+            plan: target.plan as Plan,
             planSiteLimit: target.planSiteLimit,
             emailVerified: Boolean(target.emailVerified),
             impersonatedBy: dbUser.email,
@@ -151,8 +150,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     id: dbUser.id,
     email: dbUser.email,
     name: dbUser.name,
-    role: dbUser.role,
-    plan: dbUser.plan,
+    role: dbUser.role as Role,
+    plan: dbUser.plan as Plan,
     planSiteLimit: dbUser.planSiteLimit,
     emailVerified: Boolean(dbUser.emailVerified),
   };

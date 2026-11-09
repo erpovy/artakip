@@ -1,5 +1,5 @@
 import tls from "tls";
-import { MonitorType, Status } from "@prisma/client";
+import { MonitorType, Status } from "./prisma";
 import { validateSafeUrl } from "./ssrf";
 
 export interface ExpectedStatusRange {

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { Plan } from "@prisma/client";
 import { authOptions, SessionUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma, Plan } from "@/lib/prisma";
 import { getQueueHealth } from "@/lib/queue";
 import { sendEmailWithRetry } from "@/lib/email";
 import { DEFAULT_PLANS } from "@/lib/plans";

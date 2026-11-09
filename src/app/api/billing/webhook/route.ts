@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { Plan } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma, Plan } from "@/lib/prisma";
 import { DEFAULT_PLANS } from "@/lib/plans";
 
 export async function POST(req: NextRequest) {

@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -12,13 +12,13 @@ model User {
   email                String                @unique
   passwordHash         String
   name                 String?
-  role                 Role                  @default(USER)
+  role                 String                @default("USER")
   emailVerified        DateTime?
   verificationToken    String?               @unique
   resetToken           String?               @unique
   resetTokenExpiry     DateTime?
   suspended            Boolean               @default(false)
-  plan                 Plan                  @default(FREE)
+  plan                 String                @default("FREE")
   planSiteLimit        Int                   @default(5)
   stripeCustomerId     String?               @unique
   stripeSubscriptionId String?               @unique
@@ -32,28 +32,28 @@ model User {
 }
 
 model Monitor {
-  id                 String      @id @default(cuid())
+  id                 String     @id @default(cuid())
   userId             String
-  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user               User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   name               String
   url                String
-  type               MonitorType @default(HTTP)
+  type               String     @default("HTTP")
   keyword            String?
-  intervalSeconds    Int         @default(300)
-  timeoutSeconds     Int         @default(15)
-  expectedStatus     String      @default("200-399")
-  followRedirects    Boolean     @default(true)
-  paused             Boolean     @default(false)
-  checkSsl           Boolean     @default(true)
+  intervalSeconds    Int        @default(300)
+  timeoutSeconds     Int        @default(15)
+  expectedStatus     String     @default("200-399")
+  followRedirects    Boolean    @default(true)
+  paused             Boolean    @default(false)
+  checkSsl           Boolean    @default(true)
   wpCheckPath        String?
-  currentStatus      Status      @default(UNKNOWN)
+  currentStatus      String     @default("UNKNOWN")
   lastCheckedAt      DateTime?
   lastStatusChangeAt DateTime?
-  consecutiveFails   Int         @default(0)
+  consecutiveFails   Int        @default(0)
   sslExpiresAt       DateTime?
   sslNotifiedAt      DateTime?
-  tags               String[]
-  createdAt          DateTime    @default(now())
+  tags               String     @default("wordpress")
+  createdAt          DateTime   @default(now())
   checks             Check[]
   incidents          Incident[]
 
@@ -65,7 +65,7 @@ model Check {
   monitorId  String
   monitor    Monitor  @relation(fields: [monitorId], references: [id], onDelete: Cascade)
   checkedAt  DateTime @default(now())
-  status     Status
+  status     String
   httpCode   Int?
   responseMs Int?
   error      String?
@@ -126,7 +126,7 @@ model NotificationLog {
 }
 
 model PlanConfig {
-  plan               Plan     @id
+  plan               String   @id
   name               String
   siteLimit          Int
   minIntervalSeconds Int
@@ -134,27 +134,4 @@ model PlanConfig {
   priceTry           Int
   stripePriceId      String?
   updatedAt          DateTime @updatedAt
-}
-
-enum Role {
-  USER
-  ADMIN
-}
-
-enum Plan {
-  FREE
-  STARTER
-  PRO
-  AGENCY
-}
-
-enum MonitorType {
-  HTTP
-  KEYWORD
-}
-
-enum Status {
-  UP
-  DOWN
-  UNKNOWN
 }

@@ -59,6 +59,7 @@ export async function GET(
   return NextResponse.json({
     monitor: {
       ...monitor,
+      tags: monitor.tags ? monitor.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
       checks: serializedChecks,
     },
   });
@@ -91,6 +92,9 @@ export async function PATCH(
     }
 
     const data: Record<string, unknown> = { ...parsed.data };
+    if (Array.isArray(parsed.data.tags)) {
+      data.tags = parsed.data.tags.map((t) => t.trim()).filter(Boolean).join(",");
+    }
 
     if (parsed.data.url) {
       const ssrf = await validateSafeUrl(parsed.data.url);

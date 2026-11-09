@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { Prisma, Status } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { getSessionUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma, Status } from "@/lib/prisma";
 import { validateSafeUrl } from "@/lib/ssrf";
 import { checkPlanSiteLimit, validateIntervalForPlan } from "@/lib/plans";
 import {
@@ -44,8 +44,8 @@ export async function GET(req: NextRequest) {
 
   if (q) {
     where.OR = [
-      { name: { contains: q, mode: "insensitive" } },
-      { url: { contains: q, mode: "insensitive" } },
+      { name: { contains: q } },
+      { url: { contains: q } },
     ];
   }
 
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (tag) {
-    where.tags = { has: tag };
+    where.tags = { contains: tag };
   }
 
   let orderBy: Prisma.MonitorOrderByWithRelationInput = { createdAt: "desc" };
@@ -110,6 +110,7 @@ export async function GET(req: NextRequest) {
     const latestCheck = m.checks[0] || null;
     return {
       ...m,
+      tags: m.tags ? m.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
       lastResponseMs: latestCheck?.responseMs ?? null,
       lastHttpCode: latestCheck?.httpCode ?? null,
       uptime30d,
@@ -188,7 +189,7 @@ export async function POST(req: NextRequest) {
         followRedirects: parsed.data.followRedirects,
         checkSsl: parsed.data.checkSsl,
         wpCheckPath: parsed.data.wpCheckPath || null,
-        tags: parsed.data.tags.map((t) => t.trim()).filter(Boolean),
+        tags: parsed.data.tags.map((t) => t.trim()).filter(Boolean).join(","),
       },
     });
 

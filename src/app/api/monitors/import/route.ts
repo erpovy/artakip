@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
           url: entry.url,
           intervalSeconds: Math.max(300, defaultInterval),
           timeoutSeconds: 15,
-          tags: defaultTag ? [defaultTag] : ["wordpress"],
+          tags: defaultTag ? defaultTag : "wordpress",
         },
       });
       await scheduleMonitorRepeatableJob(m.id, m.intervalSeconds);
