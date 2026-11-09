@@ -12,10 +12,21 @@ function walk(dir) {
       let content = fs.readFileSync(fullPath, "utf8");
       let changed = false;
 
-      if (content.includes("D:\\\\ArtovyAPPS\\\\Artakip")) {
+      if (/ArtovyAPPS/i.test(content)) {
+        // 1) Double-escaped Windows paths in JSON / JS strings: D:\\ArtovyAPPS\\Artakip\\...
         content = content.replace(
-          /D:\\\\ArtovyAPPS\\\\Artakip([\\A-Za-z0-9_.\-[\]]*)/g,
+          /[Dd]:\\\\ArtovyAPPS\\\\Artakip([\\A-Za-z0-9_.\-[\]/#?=&%]*)/g,
           (_match, subPath) => TARGET_LINUX_DIR + subPath.replace(/\\\\/g, "/")
+        );
+        // 2) Single-backslash Windows paths in String.raw`D:\ArtovyAPPS\Artakip\...`
+        content = content.replace(
+          /[Dd]:\\ArtovyAPPS\\Artakip([\\A-Za-z0-9_.\-[\]/#?=&%]*)/g,
+          (_match, subPath) => TARGET_LINUX_DIR + subPath.replace(/\\/g, "/")
+        );
+        // 3) Forward-slash Windows paths: D:/ArtovyAPPS/Artakip/...
+        content = content.replace(
+          /[Dd]:\/ArtovyAPPS\/Artakip/g,
+          TARGET_LINUX_DIR
         );
         changed = true;
       }

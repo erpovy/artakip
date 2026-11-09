@@ -31,50 +31,55 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const user = await getSessionUser();
-  if (!user) {
-    return NextResponse.json({ error: "Oturum açmanız gerekiyor." }, { status: 401 });
-  }
+  try {
+    const user = await getSessionUser();
+    if (!user) {
+      return NextResponse.json({ error: "Oturum açmanız gerekiyor." }, { status: 401 });
+    }
 
-  const initialCheck = await prisma.monitor.findFirst({
-    where: { id: params.id, userId: user.id },
-    select: { id: true, currentStatus: true, paused: true },
-  });
+    const initialCheck = await prisma.monitor.findFirst({
+      where: { id: params.id, userId: user.id },
+      select: { id: true, currentStatus: true, paused: true },
+    });
 
-  if (initialCheck && initialCheck.currentStatus === "UNKNOWN" && !initialCheck.paused) {
-    await executeMonitorCheck(initialCheck.id).catch(() => null);
-  }
+    if (initialCheck && initialCheck.currentStatus === "UNKNOWN" && !initialCheck.paused) {
+      await executeMonitorCheck(initialCheck.id).catch(() => null);
+    }
 
-  const monitor = await prisma.monitor.findFirst({
-    where: { id: params.id, userId: user.id },
-    include: {
-      incidents: {
-        orderBy: { startedAt: "desc" },
-        take: 30,
+    const monitor = await prisma.monitor.findFirst({
+      where: { id: params.id, userId: user.id },
+      include: {
+        incidents: {
+          orderBy: { startedAt: "desc" },
+          take: 30,
+        },
+        checks: {
+          orderBy: { checkedAt: "desc" },
+          take: 50,
+        },
       },
-      checks: {
-        orderBy: { checkedAt: "desc" },
-        take: 50,
+    });
+
+    if (!monitor) {
+      return NextResponse.json({ error: "Site bulunamadı veya erişim yetkiniz yok." }, { status: 404 });
+    }
+
+    const serializedChecks = (monitor.checks || []).map((c) => ({
+      ...c,
+      id: c.id.toString(),
+    }));
+
+    return NextResponse.json({
+      monitor: {
+        ...monitor,
+        tags: monitor.tags ? monitor.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
+        checks: serializedChecks,
       },
-    },
-  });
-
-  if (!monitor) {
-    return NextResponse.json({ error: "Site bulunamadı veya erişim yetkiniz yok." }, { status: 404 });
+    });
+  } catch (err) {
+    console.error("[GET /api/monitors/[id]] Error:", err);
+    return NextResponse.json({ error: "Site detayı yüklenirken hata oluştu." }, { status: 500 });
   }
-
-  const serializedChecks = monitor.checks.map((c) => ({
-    ...c,
-    id: c.id.toString(),
-  }));
-
-  return NextResponse.json({
-    monitor: {
-      ...monitor,
-      tags: monitor.tags ? monitor.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
-      checks: serializedChecks,
-    },
-  });
 }
 
 export async function PATCH(

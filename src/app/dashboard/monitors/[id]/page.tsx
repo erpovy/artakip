@@ -69,6 +69,7 @@ export default function MonitorDetailPage() {
   const [uptimePct, setUptimePct] = useState(100);
   const [avgMs, setAvgMs] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [checkingNow, setCheckingNow] = useState(false);
 
   // Düzenleme state
@@ -79,38 +80,53 @@ export default function MonitorDetailPage() {
   const [saveMsg, setSaveMsg] = useState("");
 
   const loadDetail = useCallback(async () => {
-    const [detailRes, checksRes] = await Promise.all([
-      fetch(`/api/monitors/${monitorId}`, { cache: "no-store" }),
-      fetch(`/api/monitors/${monitorId}/checks?range=${range}`, { cache: "no-store" }),
-    ]);
+    try {
+      setErrorMsg(null);
+      const [detailRes, checksRes] = await Promise.all([
+        fetch(`/api/monitors/${monitorId}`, { cache: "no-store" }),
+        fetch(`/api/monitors/${monitorId}/checks?range=${range}`, { cache: "no-store" }),
+      ]);
 
-    if (detailRes.ok) {
-      const d = await detailRes.json();
-      setMonitor(d.monitor);
-      setEditName(d.monitor.name);
-      setEditInterval(d.monitor.intervalSeconds);
-      setEditTimeout(d.monitor.timeoutSeconds);
-      setEditKeyword(d.monitor.keyword || "");
+      if (detailRes.ok) {
+        const d = await detailRes.json();
+        if (d?.monitor) {
+          setMonitor({
+            ...d.monitor,
+            incidents: Array.isArray(d.monitor.incidents) ? d.monitor.incidents : [],
+            checks: Array.isArray(d.monitor.checks) ? d.monitor.checks : [],
+            tags: Array.isArray(d.monitor.tags) ? d.monitor.tags : [],
+          });
+          setEditName(d.monitor.name || "");
+          setEditInterval(d.monitor.intervalSeconds || 300);
+          setEditTimeout(d.monitor.timeoutSeconds || 15);
+          setEditKeyword(d.monitor.keyword || "");
+        }
+      } else {
+        const errData = await detailRes.json().catch(() => ({}));
+        setErrorMsg(errData.error || `Site bilgileri alınamadı (HTTP ${detailRes.status}).`);
+      }
+
+      if (checksRes.ok) {
+        const c = await checksRes.json();
+        setUptimePct(c.uptimePercent ?? 100);
+        setAvgMs(c.avgResponseMs ?? 0);
+        setChartData(
+          (Array.isArray(c.checks) ? c.checks : []).map(
+            (item: { checkedAt: string; responseMs: number | null }) => ({
+              time: new Date(item.checkedAt).toLocaleTimeString("tr-TR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+              responseMs: item.responseMs ?? 0,
+            })
+          )
+        );
+      }
+    } catch {
+      setErrorMsg("Sunucu ile bağlantı kurulurken bir hata oluştu.");
+    } finally {
+      setLoading(false);
     }
-
-    if (checksRes.ok) {
-      const c = await checksRes.json();
-      setUptimePct(c.uptimePercent ?? 100);
-      setAvgMs(c.avgResponseMs ?? 0);
-      setChartData(
-        (c.checks || []).map(
-          (item: { checkedAt: string; responseMs: number | null }) => ({
-            time: new Date(item.checkedAt).toLocaleTimeString("tr-TR", {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            responseMs: item.responseMs ?? 0,
-          })
-        )
-      );
-    }
-
-    setLoading(false);
   }, [monitorId, range]);
 
   useEffect(() => {
@@ -162,8 +178,26 @@ export default function MonitorDetailPage() {
     }
   }
 
-  if (loading || !monitor) {
+  if (loading) {
     return <div className="py-12 text-center text-muted-foreground">Yükleniyor...</div>;
+  }
+
+  if (errorMsg || !monitor) {
+    return (
+      <Card className="p-8 text-center space-y-4">
+        <p className="text-sm text-rose-500 font-medium">
+          {errorMsg || "Site detayı bulunamadı."}
+        </p>
+        <div className="flex justify-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => router.push("/dashboard/monitors")}>
+            Sitelere Dön
+          </Button>
+          <Button size="sm" onClick={() => { setLoading(true); loadDetail(); }}>
+            Tekrar Dene
+          </Button>
+        </div>
+      </Card>
+    );
   }
 
   const sslDaysRemaining = monitor.sslExpiresAt
