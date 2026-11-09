@@ -1,5 +1,8 @@
 process.env.UV_THREADPOOL_SIZE = "1";
 
+import fs from "fs";
+import os from "os";
+import path from "path";
 import http from "http";
 import https from "https";
 import nodemailer from "nodemailer";
@@ -7,18 +10,64 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+function resolveLocalSenderCandidates() {
+  const candidates = [];
+  const rawFrom = process.env.SMTP_FROM;
+  if (rawFrom && !rawFrom.includes("example.com")) {
+    candidates.push(rawFrom);
+  }
+  if (process.env.SMTP_USER && process.env.SMTP_USER.includes("@")) {
+    candidates.push(`Artakip Uptime <${process.env.SMTP_USER}>`);
+  }
+
+  try {
+    const etcDir = path.join(os.homedir(), "etc");
+    if (fs.existsSync(etcDir)) {
+      for (const entry of fs.readdirSync(etcDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const domain = entry.name;
+        const passwdFile = path.join(etcDir, domain, "passwd");
+        if (fs.existsSync(passwdFile)) {
+          const lines = fs.readFileSync(passwdFile, "utf8").split(/\r?\n/).filter(Boolean);
+          for (const line of lines) {
+            const localPart = line.split(":")[0]?.trim();
+            if (localPart) {
+              candidates.push(`Artakip Uptime <${localPart}@${domain}>`);
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Yoksay
+  }
+
+  try {
+    const username = os.userInfo().username;
+    const hostname = os.hostname();
+    if (username && hostname) {
+      candidates.push(`Artakip Uptime <${username}@${hostname}>`);
+    }
+  } catch {
+    // Yoksay
+  }
+
+  candidates.push("Artakip Uptime <noreply@artovy.com>");
+  return Array.from(new Set(candidates));
+}
+
+function extractAddress(fromHeader) {
+  const m = /<([^>]+)>/.exec(fromHeader);
+  return m ? m[1] : fromHeader.trim();
+}
+
 async function sendAlertEmail(toEmail, subject, html, text) {
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT || 587);
   const secure = process.env.SMTP_SECURE === "true";
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
-  const rawFrom = process.env.SMTP_FROM;
-  const from =
-    rawFrom && !rawFrom.includes("example.com")
-      ? rawFrom
-      : "Artakip Uptime <noreply@artakip.artovy.com>";
-
+  const senderCandidates = resolveLocalSenderCandidates();
   const hasCustomSmtp = Boolean(host && host !== "smtp.example.com");
 
   if (hasCustomSmtp) {
@@ -30,29 +79,62 @@ async function sendAlertEmail(toEmail, subject, html, text) {
       tls: { rejectUnauthorized: false },
       connectionTimeout: 6000,
     });
-    await transporter.sendMail({ from, to: toEmail, subject, text, html });
-    return "SMTP";
+    await transporter.sendMail({
+      from: senderCandidates[0],
+      to: toEmail,
+      subject,
+      text,
+      html,
+    });
+    return `SMTP (${senderCandidates[0]})`;
   }
 
-  try {
-    const localSmtp = nodemailer.createTransport({
-      host: "127.0.0.1",
-      port: 25,
-      secure: false,
-      tls: { rejectUnauthorized: false },
-      connectionTimeout: 5000,
-    });
-    await localSmtp.sendMail({ from, to: toEmail, subject, text, html });
-    return "Exim (127.0.0.1:25)";
-  } catch {
-    const sendmailTransport = nodemailer.createTransport({
-      sendmail: true,
-      newline: "unix",
-      path: "/usr/sbin/sendmail",
-    });
-    await sendmailTransport.sendMail({ from, to: toEmail, subject, text, html });
-    return "sendmail (/usr/sbin/sendmail)";
+  let lastErr = "";
+  for (const candidateFrom of senderCandidates) {
+    try {
+      const envelopeFrom = extractAddress(candidateFrom);
+      const sendmailTransport = nodemailer.createTransport({
+        sendmail: true,
+        newline: "unix",
+        path: "/usr/sbin/sendmail",
+        args: ["-f", envelopeFrom],
+      });
+      await sendmailTransport.sendMail({
+        from: candidateFrom,
+        to: toEmail,
+        subject,
+        text,
+        html,
+      });
+      return `sendmail (${envelopeFrom})`;
+    } catch (e) {
+      lastErr = e.message;
+    }
   }
+
+  for (const candidateFrom of senderCandidates) {
+    try {
+      const localSmtp = nodemailer.createTransport({
+        host: "127.0.0.1",
+        port: 25,
+        secure: false,
+        tls: { rejectUnauthorized: false },
+        connectionTimeout: 5000,
+      });
+      await localSmtp.sendMail({
+        from: candidateFrom,
+        to: toEmail,
+        subject,
+        text,
+        html,
+      });
+      return `Exim 127.0.0.1:25 (${extractAddress(candidateFrom)})`;
+    } catch (e) {
+      lastErr = e.message;
+    }
+  }
+
+  throw new Error(lastErr || "E-posta gönderilemedi");
 }
 
 function probeUrl(urlStr, timeoutMs = 8000, redirectsLeft = 5) {
@@ -107,7 +189,7 @@ function probeUrl(urlStr, timeoutMs = 8000, redirectsLeft = 5) {
               isUp: false,
               httpCode: 503,
               responseMs: Date.now() - start,
-              error: "WHM/cPanel Hesabı Askıya Alınmış (Account Suspended)",
+              error: "Site Askıya Alınmış (Account Suspended)",
             });
             return;
           }
@@ -149,7 +231,7 @@ function probeUrl(urlStr, timeoutMs = 8000, redirectsLeft = 5) {
               isUp: false,
               httpCode: 503,
               responseMs: Date.now() - start,
-              error: "WHM/cPanel Hesabı Askıya Alınmış (Account Suspended)",
+              error: "Site Askıya Alınmış (Account Suspended)",
             });
             return;
           }
@@ -192,10 +274,13 @@ function probeUrl(urlStr, timeoutMs = 8000, redirectsLeft = 5) {
 }
 
 async function main() {
-  // Tüm mevcut kullanıcıların e-posta doğrulamasını aktif et (bildirimlerin engellenmemesi için)
   await prisma.user.updateMany({
     where: { emailVerified: null },
     data: { emailVerified: new Date() },
+  });
+  await prisma.alertContact.updateMany({
+    where: { verified: false },
+    data: { verified: true },
   });
 
   const monitors = await prisma.monitor.findMany({
@@ -204,7 +289,7 @@ async function main() {
       user: {
         include: {
           settings: true,
-          contacts: { where: { verified: true } },
+          contacts: true,
         },
       },
     },
@@ -247,40 +332,60 @@ async function main() {
       `-> [${nextStatus}] ${m.name} (${targetUrl}) | HTTP: ${res.httpCode ?? "-"} | Süre: ${res.responseMs}ms ${res.error ? "| Neden: " + res.error : ""}`
     );
 
-    const recipients = [m.user.email, ...m.user.contacts.map((c) => c.email)];
+    const recipients = Array.from(
+      new Set([m.user.email, ...m.user.contacts.map((c) => c.email)])
+    );
 
-    // Eğer site DOWN ise ve açık Incident yoksa Incident oluştur ve DOWN e-postası gönder
     if (nextStatus === "DOWN") {
-      const openInc = await prisma.incident.findFirst({
+      const reason = res.error || "Site yanıt vermiyor";
+      let openInc = await prisma.incident.findFirst({
         where: { monitorId: m.id, resolvedAt: null },
       });
       if (!openInc) {
-        const reason = res.error || "Site yanıt vermiyor";
-        await prisma.incident.create({
+        openInc = await prisma.incident.create({
           data: {
             monitorId: m.id,
             startedAt: now,
             reason,
           },
         });
+      }
 
-        const subject = `🔴 [KAPANDI] ${m.name} erişilemiyor`;
-        const text = `[KAPANDI] ${m.name}\nURL: ${m.url}\nNeden: ${reason}\nZaman: ${now.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}\nPanel: https://artakip.artovy.com/dashboard/monitors/${m.id}`;
-        const html = `<div style="font-family:sans-serif;padding:20px;border:1px solid #e2e8f0;border-radius:8px;">
-          <h2 style="color:#dc2626;margin-top:0;">🔴 Site Kapandı Uyarısı</h2>
-          <p><strong>${m.name}</strong> (${m.url}) yapılan kontrolde erişilemedi.</p>
-          <p><strong>Hata Nedeni:</strong> <span style="color:#dc2626;">${reason}</span></p>
-          <p><strong>Zaman:</strong> ${now.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}</p>
-          <p><a href="https://artakip.artovy.com/dashboard/monitors/${m.id}" style="background:#2563eb;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none;">Panelde Görüntüle</a></p>
-        </div>`;
+      const subject = `🔴 [KAPANDI] ${m.name} erişilemiyor`;
+      const text = `[KAPANDI] ${m.name}\nURL: ${m.url}\nNeden: ${reason}\nZaman: ${now.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}\nPanel: https://artakip.artovy.com/dashboard/monitors/${m.id}`;
+      const html = `<div style="font-family:sans-serif;padding:20px;border:1px solid #e2e8f0;border-radius:8px;">
+        <h2 style="color:#dc2626;margin-top:0;">🔴 Site Kapandı Uyarısı</h2>
+        <p><strong>${m.name}</strong> (${m.url}) yapılan kontrolde erişilemedi.</p>
+        <p><strong>Hata Nedeni:</strong> <span style="color:#dc2626;">${reason}</span></p>
+        <p><strong>Zaman:</strong> ${now.toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}</p>
+        <p><a href="https://artakip.artovy.com/dashboard/monitors/${m.id}" style="background:#2563eb;color:#fff;padding:8px 14px;border-radius:6px;text-decoration:none;">Panelde Görüntüle</a></p>
+      </div>`;
 
-        for (const toEmail of recipients) {
-          try {
-            const via = await sendAlertEmail(toEmail, subject, html, text);
-            console.log(`   [E-POSTA GÖNDERİLDİ] -> ${toEmail} (${via})`);
-          } catch (mailErr) {
-            console.error(`   [E-POSTA HATASI] -> ${toEmail}:`, mailErr.message);
-          }
+      for (const toEmail of recipients) {
+        try {
+          const via = await sendAlertEmail(toEmail, subject, html, text);
+          await prisma.notificationLog.create({
+            data: {
+              userId: m.userId,
+              monitorId: m.id,
+              type: "DOWN",
+              toEmail,
+              success: true,
+            },
+          });
+          console.log(`   [E-POSTA GÖNDERİLDİ] -> ${toEmail} (${via})`);
+        } catch (mailErr) {
+          await prisma.notificationLog.create({
+            data: {
+              userId: m.userId,
+              monitorId: m.id,
+              type: "DOWN",
+              toEmail,
+              success: false,
+              error: mailErr.message,
+            },
+          });
+          console.error(`   [E-POSTA HATASI] -> ${toEmail}:`, mailErr.message);
         }
       }
     } else if (nextStatus === "UP" && prevStatus === "DOWN") {

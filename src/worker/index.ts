@@ -53,7 +53,7 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
       user: {
         include: {
           settings: true,
-          contacts: { where: { verified: true } },
+          contacts: true,
         },
       },
     },
@@ -119,28 +119,55 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
     return;
   }
 
-  const recipients = [
-    monitor.user.email,
-    ...monitor.user.contacts.map((c) => c.email),
-  ];
+  const recipients = Array.from(
+    new Set([
+      monitor.user.email,
+      ...monitor.user.contacts.map((c) => c.email),
+    ])
+  );
   const tz = settings?.timezone || "Europe/Istanbul";
+  const effectiveEmailVerified = monitor.user.emailVerified ?? new Date();
 
-  // 4. UP -> DOWN geçişi: Incident oluştur ve bildirim tetikle
-  if (transition.openIncident && transition.triggerEmail === "DOWN") {
+  // Eğer site zaten DOWN durumundaysa fakat bu kesinti için henüz başarılı bir DOWN e-postası gönderilmemişse tetikle
+  let shouldForceDownAlert = false;
+  if (transition.nextStatus === "DOWN" && !transition.openIncident) {
+    const sinceTime =
+      transition.nextLastStatusChangeAt ||
+      new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const existingDownMail = await prisma.notificationLog.findFirst({
+      where: {
+        monitorId: monitor.id,
+        type: "DOWN",
+        success: true,
+        sentAt: { gte: sinceTime },
+      },
+    });
+    if (!existingDownMail) {
+      shouldForceDownAlert = true;
+    }
+  }
+
+  // 4. UP -> DOWN geçişi (veya henüz maili gitmemiş aktif DOWN durumu): Incident oluştur ve bildirim tetikle
+  if ((transition.openIncident && transition.triggerEmail === "DOWN") || shouldForceDownAlert) {
     const reason = probe.error || "Site yanıt vermiyor";
-    await prisma.incident
-      .create({
-        data: {
-          monitorId: monitor.id,
-          startedAt: transition.incidentStartedAt || now,
-          reason,
-        },
-      })
-      .catch((err) => console.error("[Incident Create Warning]", err));
+    const existingOpenIncident = await prisma.incident.findFirst({
+      where: { monitorId: monitor.id, resolvedAt: null },
+    });
+    if (!existingOpenIncident) {
+      await prisma.incident
+        .create({
+          data: {
+            monitorId: monitor.id,
+            startedAt: transition.incidentStartedAt || now,
+            reason,
+          },
+        })
+        .catch((err) => console.error("[Incident Create Warning]", err));
+    }
 
     const policy = evaluateNotificationPolicy({
       eventType: "DOWN",
-      userEmailVerified: monitor.user.emailVerified,
+      userEmailVerified: effectiveEmailVerified,
       notifyOnDown: settings?.notifyOnDown ?? true,
       notifyOnUp: settings?.notifyOnUp ?? true,
       notifyOnSslExpiry: settings?.notifyOnSslExpiry ?? true,
@@ -184,7 +211,7 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
             timezone: tz,
           });
           for (const email of recipients) {
-            void enqueueEmailNotification({
+            await enqueueEmailNotification({
               userId: monitor.userId,
               monitorId: monitor.id,
               type: "DOWN",
@@ -203,7 +230,7 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
           timezone: tz,
         });
         for (const email of recipients) {
-          void enqueueEmailNotification({
+          await enqueueEmailNotification({
             userId: monitor.userId,
             monitorId: monitor.id,
             type: "DOWN",
@@ -248,7 +275,7 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
 
     const policy = evaluateNotificationPolicy({
       eventType: "UP",
-      userEmailVerified: monitor.user.emailVerified,
+      userEmailVerified: effectiveEmailVerified,
       notifyOnDown: settings?.notifyOnDown ?? true,
       notifyOnUp: settings?.notifyOnUp ?? true,
       notifyOnSslExpiry: settings?.notifyOnSslExpiry ?? true,
@@ -269,7 +296,7 @@ export async function executeMonitorCheck(monitorId: string): Promise<void> {
       });
 
       for (const email of recipients) {
-        void enqueueEmailNotification({
+        await enqueueEmailNotification({
           userId: monitor.userId,
           monitorId: monitor.id,
           type: "UP",

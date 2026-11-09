@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { buildDownEmailTemplate, sendEmailWithRetry } from "@/lib/email";
 
 const notificationSettingsSchema = z.object({
   notifyOnDown: z.boolean(),
@@ -94,4 +95,55 @@ export async function PUT(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Ayarlar güncellenemedi." }, { status: 500 });
   }
+}
+
+export async function POST() {
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: "Oturum açmanız gerekiyor." }, { status: 401 });
+  }
+
+  const contacts = await prisma.alertContact.findMany({
+    where: { userId: user.id },
+  });
+
+  const recipients = Array.from(
+    new Set([user.email, ...contacts.map((c) => c.email)])
+  );
+
+  const tpl = buildDownEmailTemplate({
+    monitorId: "test",
+    monitorName: "Test Web Sitesi (Deneme)",
+    url: "https://artakip.artovy.com",
+    startedAt: new Date(),
+    reason: "Bu bir test bildirim e-postasıdır.",
+    timezone: "Europe/Istanbul",
+  });
+
+  const results: Array<{ email: string; success: boolean; error?: string }> = [];
+  for (const toEmail of recipients) {
+    const res = await sendEmailWithRetry({
+      userId: user.id,
+      type: "TEST",
+      toEmail,
+      template: tpl,
+      maxRetries: 1,
+    });
+    results.push({ email: toEmail, ...res });
+  }
+
+  const failed = results.filter((r) => !r.success);
+  if (failed.length > 0 && failed.length === results.length) {
+    return NextResponse.json(
+      {
+        error: `Test e-postası gönderilemedi: ${failed[0].error || "Bilinmeyen hata"}`,
+      },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json({
+    message: `Test e-postası başarıyla gönderildi (${recipients.join(", ")}).`,
+    results,
+  });
 }

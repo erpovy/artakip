@@ -42,6 +42,27 @@ export default function NotificationSettingsPage() {
   const [devContactToken, setDevContactToken] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [testingMail, setTestingMail] = useState(false);
+
+  async function handleSendTestEmail() {
+    setTestingMail(true);
+    setMessage("");
+    setError("");
+    try {
+      const res = await fetch("/api/settings/notifications", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Test e-postası gönderilemedi.");
+      } else {
+        setMessage(data.message || "Test e-postası gönderildi.");
+      }
+      loadSettings();
+    } catch {
+      setError("Test e-postası gönderilirken bağlantı hatası oluştu.");
+    } finally {
+      setTestingMail(false);
+    }
+  }
 
   const loadSettings = useCallback(async () => {
     const res = await fetch("/api/settings/notifications");
@@ -296,10 +317,20 @@ export default function NotificationSettingsPage() {
             </div>
           </div>
 
-          <Button type="submit" className="gap-2">
-            <Save className="h-4 w-4" />
-            Bildirim Ayarlarını Kaydet
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="submit" className="gap-2">
+              <Save className="h-4 w-4" />
+              Bildirim Ayarlarını Kaydet
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={testingMail}
+              onClick={handleSendTestEmail}
+            >
+              {testingMail ? "Test E-postası Gönderiliyor..." : "Test E-postası Gönder"}
+            </Button>
+          </div>
         </form>
       </Card>
 

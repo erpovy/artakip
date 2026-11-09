@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
       data: {
         userId: user.id,
         email,
-        verified: false,
+        verified: true,
         verifyToken,
       },
     });

@@ -1,3 +1,6 @@
+import fs from "fs";
+import os from "os";
+import path from "path";
 import nodemailer from "nodemailer";
 import { formatDateTR, formatDurationTR } from "./utils";
 import { prisma } from "./prisma";
@@ -389,6 +392,66 @@ export function buildAccountEmailTemplate(
 }
 
 /**
+ * cPanel / Linux sunucularda Exim "Sender verify failed (550 No Such User Here)" hatasını
+ * önlemek için ~/etc/<domain>/passwd içindeki gerçek bir e-posta hesabını veya sistem kullanıcısını bulur.
+ */
+function resolveLocalSenderCandidates(): string[] {
+  const candidates: string[] = [];
+  const rawFrom = process.env.SMTP_FROM;
+  if (rawFrom && !rawFrom.includes("example.com")) {
+    candidates.push(rawFrom);
+  }
+  if (process.env.SMTP_USER && process.env.SMTP_USER.includes("@")) {
+    candidates.push(`Artakip Uptime <${process.env.SMTP_USER}>`);
+  }
+
+  try {
+    const homeDir = os.homedir();
+    const etcDir = path.join(homeDir, "etc");
+    if (fs.existsSync(etcDir)) {
+      const entries = fs.readdirSync(etcDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const domain = entry.name;
+        const passwdFile = path.join(etcDir, domain, "passwd");
+        if (fs.existsSync(passwdFile)) {
+          const lines = fs
+            .readFileSync(passwdFile, "utf8")
+            .split(/\r?\n/)
+            .filter(Boolean);
+          for (const line of lines) {
+            const localPart = line.split(":")[0]?.trim();
+            if (localPart) {
+              candidates.push(`Artakip Uptime <${localPart}@${domain}>`);
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Yoksay
+  }
+
+  try {
+    const username = os.userInfo().username;
+    const hostname = os.hostname();
+    if (username && hostname) {
+      candidates.push(`Artakip Uptime <${username}@${hostname}>`);
+    }
+  } catch {
+    // Yoksay
+  }
+
+  candidates.push("Artakip Uptime <noreply@artovy.com>");
+  return Array.from(new Set(candidates));
+}
+
+function extractAddress(fromHeader: string): string {
+  const m = /<([^>]+)>/.exec(fromHeader);
+  return m ? m[1] : fromHeader.trim();
+}
+
+/**
  * Nodemailer ile e-posta gönderir ve NotificationLog tablosuna kaydeder.
  * Başarısız olursa maksimum maxRetries (varsayılan 3) kez dener.
  */
@@ -406,11 +469,8 @@ export async function sendEmailWithRetry(params: {
   const secure = process.env.SMTP_SECURE === "true";
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
-  const rawFrom = process.env.SMTP_FROM;
-  const from =
-    rawFrom && !rawFrom.includes("example.com")
-      ? rawFrom
-      : "Artakip Uptime <noreply@artakip.artovy.com>";
+  const senderCandidates = resolveLocalSenderCandidates();
+  const primaryFrom = senderCandidates[0] || "Artakip Uptime <noreply@artovy.com>";
 
   let lastError = "";
   const hasCustomSmtp = Boolean(host && host !== "smtp.example.com");
@@ -428,42 +488,68 @@ export async function sendEmailWithRetry(params: {
         });
 
         await transporter.sendMail({
-          from,
+          from: primaryFrom,
           to: params.toEmail,
           subject: params.template.subject,
           text: params.template.text,
           html: params.template.html,
         });
       } else if (process.platform === "linux") {
-        // cPanel / WHM yerel Exim (127.0.0.1:25) veya /usr/sbin/sendmail ile doğrudan gönderim
-        try {
-          const localSmtp = nodemailer.createTransport({
-            host: "127.0.0.1",
-            port: 25,
-            secure: false,
-            tls: { rejectUnauthorized: false },
-            connectionTimeout: 5000,
-          });
-          await localSmtp.sendMail({
-            from,
-            to: params.toEmail,
-            subject: params.template.subject,
-            text: params.template.text,
-            html: params.template.html,
-          });
-        } catch {
-          const sendmailTransport = nodemailer.createTransport({
-            sendmail: true,
-            newline: "unix",
-            path: "/usr/sbin/sendmail",
-          });
-          await sendmailTransport.sendMail({
-            from,
-            to: params.toEmail,
-            subject: params.template.subject,
-            text: params.template.text,
-            html: params.template.html,
-          });
+        let sentOnLinux = false;
+        let linuxErr = "";
+
+        // 1. Önce /usr/sbin/sendmail ile dene (cPanel/CloudLinux üzerinde en güvenilir yöntem)
+        for (const candidateFrom of senderCandidates) {
+          try {
+            const envelopeFrom = extractAddress(candidateFrom);
+            const sendmailTransport = nodemailer.createTransport({
+              sendmail: true,
+              newline: "unix",
+              path: "/usr/sbin/sendmail",
+              args: ["-f", envelopeFrom],
+            });
+            await sendmailTransport.sendMail({
+              from: candidateFrom,
+              to: params.toEmail,
+              subject: params.template.subject,
+              text: params.template.text,
+              html: params.template.html,
+            });
+            sentOnLinux = true;
+            break;
+          } catch (e: unknown) {
+            linuxErr = e instanceof Error ? e.message : String(e);
+          }
+        }
+
+        // 2. sendmail başarısız olduysa 127.0.0.1:25 (Exim) üzerinden tüm geçerli gönderici adaylarıyla dene
+        if (!sentOnLinux) {
+          for (const candidateFrom of senderCandidates) {
+            try {
+              const localSmtp = nodemailer.createTransport({
+                host: "127.0.0.1",
+                port: 25,
+                secure: false,
+                tls: { rejectUnauthorized: false },
+                connectionTimeout: 5000,
+              });
+              await localSmtp.sendMail({
+                from: candidateFrom,
+                to: params.toEmail,
+                subject: params.template.subject,
+                text: params.template.text,
+                html: params.template.html,
+              });
+              sentOnLinux = true;
+              break;
+            } catch (e: unknown) {
+              linuxErr = e instanceof Error ? e.message : String(e);
+            }
+          }
+        }
+
+        if (!sentOnLinux) {
+          throw new Error(linuxErr || "Yerel Exim/sendmail gönderimi başarısız oldu.");
         }
       } else {
         // Yerel Windows/Mac geliştirme ortamında SMTP yoksa konsola simüle et
