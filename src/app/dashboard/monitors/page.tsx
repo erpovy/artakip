@@ -50,7 +50,9 @@ export default function MonitorsListPage() {
     if (statusFilter) params.set("status", statusFilter);
     if (tagFilter) params.set("tag", tagFilter);
 
-    const res = await fetch(`/api/monitors?${params.toString()}`);
+    const res = await fetch(`/api/monitors?${params.toString()}`, {
+      cache: "no-store",
+    });
     if (res.ok) {
       const data = await res.json();
       setItems(data.items || []);

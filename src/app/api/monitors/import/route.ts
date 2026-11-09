@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { validateSafeUrl } from "@/lib/ssrf";
 import { checkPlanSiteLimit, DEFAULT_PLANS } from "@/lib/plans";
 import { scheduleMonitorRepeatableJob } from "@/lib/queue";
+import { executeMonitorCheck } from "@/worker/index";
 
 interface CsvRowReport {
   line: number;
@@ -148,6 +149,11 @@ export async function POST(req: NextRequest) {
       await scheduleMonitorRepeatableJob(m.id, m.intervalSeconds);
       createdMonitors.push(m);
     }
+
+    // Arka planda ilk kontrolleri hemen başlat
+    Promise.allSettled(
+      createdMonitors.map((m) => executeMonitorCheck(m.id))
+    ).catch(() => null);
 
     return NextResponse.json(
       {

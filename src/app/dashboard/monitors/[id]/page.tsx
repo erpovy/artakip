@@ -80,8 +80,8 @@ export default function MonitorDetailPage() {
 
   const loadDetail = useCallback(async () => {
     const [detailRes, checksRes] = await Promise.all([
-      fetch(`/api/monitors/${monitorId}`),
-      fetch(`/api/monitors/${monitorId}/checks?range=${range}`),
+      fetch(`/api/monitors/${monitorId}`, { cache: "no-store" }),
+      fetch(`/api/monitors/${monitorId}/checks?range=${range}`, { cache: "no-store" }),
     ]);
 
     if (detailRes.ok) {

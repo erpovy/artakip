@@ -9,6 +9,9 @@ import {
   scheduleMonitorRepeatableJob,
   enqueueImmediateMonitorCheck,
 } from "@/lib/queue";
+import { executeMonitorCheck } from "@/worker/index";
+
+export const dynamic = "force-dynamic";
 
 const createMonitorSchema = z.object({
   name: z.string().min(1, "Site adı zorunludur.").max(120),
@@ -195,8 +198,13 @@ export async function POST(req: NextRequest) {
 
     await scheduleMonitorRepeatableJob(monitor.id, monitor.intervalSeconds);
     await enqueueImmediateMonitorCheck(monitor.id, 0);
+    await executeMonitorCheck(monitor.id).catch(() => null);
 
-    return NextResponse.json({ monitor }, { status: 201 });
+    const updatedMonitor = await prisma.monitor.findUnique({
+      where: { id: monitor.id },
+    });
+
+    return NextResponse.json({ monitor: updatedMonitor || monitor }, { status: 201 });
   } catch (err) {
     console.error("Create monitor error:", err);
     return NextResponse.json({ error: "Monitör eklenirken hata oluştu." }, { status: 500 });

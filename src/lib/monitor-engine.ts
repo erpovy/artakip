@@ -1,3 +1,5 @@
+import http from "http";
+import https from "https";
 import tls from "tls";
 import { MonitorType, Status } from "./prisma";
 import { validateSafeUrl } from "./ssrf";
@@ -74,11 +76,96 @@ export function buildTargetUrl(baseUrl: string, wpCheckPath?: string | null): st
 }
 
 /**
+ * Node.js yerel http/https modülü ile IPv4 öncelikli, yönlendirme takipli ve
+ * eksik ara SSL sertifikalarına (intermediate CA) toleranslı istek yapar.
+ */
+function requestWithNodeHttp(
+  urlStr: string,
+  timeoutMs: number,
+  followRedirects: boolean,
+  redirectsLeft = 5
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(urlStr);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+
+    const isHttps = parsed.protocol === "https:";
+    const transport = isHttps ? https : http;
+
+    const req = transport.request(
+      parsed,
+      {
+        method: "GET",
+        timeout: timeoutMs,
+        rejectUnauthorized: false,
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 TakipBot/1.0",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,application/json;q=0.8,*/*;q=0.7",
+          "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+          "Cache-Control": "no-cache",
+          Connection: "close",
+        },
+      },
+      (res) => {
+        const statusCode = res.statusCode || 0;
+        const location = res.headers.location;
+
+        if (
+          followRedirects &&
+          redirectsLeft > 0 &&
+          [301, 302, 303, 307, 308].includes(statusCode) &&
+          location
+        ) {
+          res.resume();
+          const nextUrl = new URL(location, parsed).toString();
+          requestWithNodeHttp(nextUrl, timeoutMs, followRedirects, redirectsLeft - 1)
+            .then(resolve)
+            .catch(reject);
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        let totalBytes = 0;
+        const maxBytes = 512 * 1024; // Maksimum 512KB oku
+
+        res.on("data", (chunk: Buffer) => {
+          if (totalBytes < maxBytes) {
+            chunks.push(chunk);
+            totalBytes += chunk.length;
+          }
+        });
+
+        res.on("end", () => {
+          const body = Buffer.concat(chunks).toString("utf-8");
+          resolve({ status: statusCode, body });
+        });
+
+        res.on("error", reject);
+      }
+    );
+
+    req.on("timeout", () => {
+      req.destroy(new Error("AbortError"));
+    });
+
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+/**
  * Tek bir HTTP/KEYWORD kontrolü gerçekleştirir.
  */
 export async function performHttpProbe(
   input: HttpProbeInput,
-  customFetch: typeof fetch = fetch
+  customFetch?: typeof fetch
 ): Promise<HttpProbeResult> {
   const targetUrl = buildTargetUrl(input.url, input.wpCheckPath);
   const ssrf = await validateSafeUrl(targetUrl, {
@@ -93,25 +180,43 @@ export async function performHttpProbe(
     };
   }
 
-  const controller = new AbortController();
-  const timeoutMs = Math.max(1000, input.timeoutSeconds * 1000);
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timeoutMs = Math.max(2000, input.timeoutSeconds * 1000);
   const start = Date.now();
 
   try {
-    const res = await customFetch(targetUrl, {
-      method: "GET",
-      redirect: input.followRedirects ? "follow" : "manual",
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "TakipBot/1.0 (+https://artakip.com/bot)",
-        Accept: "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-        "Cache-Control": "no-cache",
-      },
-    });
+    let httpCode: number;
+    let bodyText = "";
+
+    if (customFetch) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await customFetch(targetUrl, {
+          method: "GET",
+          redirect: input.followRedirects ? "follow" : "manual",
+          signal: controller.signal,
+          headers: {
+            "User-Agent": "TakipBot/1.0 (+https://artakip.artovy.com)",
+          },
+        });
+        httpCode = res.status;
+        if (input.type === "KEYWORD" && input.keyword) {
+          bodyText = await res.text();
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+    } else {
+      const res = await requestWithNodeHttp(
+        targetUrl,
+        timeoutMs,
+        input.followRedirects
+      );
+      httpCode = res.status;
+      bodyText = res.body;
+    }
 
     const responseMs = Date.now() - start;
-    const httpCode = res.status;
 
     if (!isHttpStatusExpected(httpCode, input.expectedStatus)) {
       return {
@@ -123,7 +228,6 @@ export async function performHttpProbe(
     }
 
     if (input.type === "KEYWORD" && input.keyword && input.keyword.trim() !== "") {
-      const bodyText = await res.text();
       if (!bodyText.includes(input.keyword)) {
         return {
           isUp: false,
@@ -145,7 +249,10 @@ export async function performHttpProbe(
     const message = err instanceof Error ? err.message : String(err);
     let reason = `Bağlantı hatası: ${message}`;
 
-    if (err instanceof Error && err.name === "AbortError") {
+    if (
+      (err instanceof Error && err.name === "AbortError") ||
+      message.includes("AbortError")
+    ) {
       reason = `Zaman aşımı (${input.timeoutSeconds} sn)`;
     } else if (/ENOTFOUND|EAI_AGAIN/i.test(message)) {
       reason = "DNS çözümleme hatası (ENOTFOUND)";
@@ -161,8 +268,6 @@ export async function performHttpProbe(
       responseMs,
       error: reason,
     };
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -190,7 +295,8 @@ export interface StateTransitionOutput {
 /**
  * Saf (pure) durum geçiş fonksiyonu:
  * - UP -> DOWN: failuresBeforeDown ardışık hata sayısına ulaşıldığında tetiklenir.
- * - İlk hatada (consecutiveFails === 1 ve failuresBeforeDown > 1) 5 sn sonra hızlı retry önerir.
+ * - UNKNOWN -> DOWN: İlk kez kontrol edilen site yanıt vermiyorsa doğrudan DOWN gösterir ("Kontrol Bekleniyor"da takılı kalmaz).
+ * - İlk hatada (previousStatus === "UP", consecutiveFails === 1 ve failuresBeforeDown > 1) 5 sn sonra hızlı retry önerir.
  * - DOWN -> UP: açık Incident'ı kapatır ve UP mailini tetikler.
  * - Aynı durumda kalırsa mail tetiklemez (spam önleme).
  */
@@ -230,8 +336,8 @@ export function evaluateMonitorStateTransition(
     };
   }
 
-  // Eşik değerine ulaşıldıysa DOWN durumuna geç
-  if (nextFails >= threshold) {
+  // Eşik değerine ulaşıldıysa VEYA ilk kez kontrol edilen (UNKNOWN) bir site hata verdiyse DOWN durumuna geç
+  if (nextFails >= threshold || input.previousStatus === "UNKNOWN") {
     return {
       nextStatus: "DOWN",
       nextConsecutiveFails: nextFails,
@@ -244,7 +350,7 @@ export function evaluateMonitorStateTransition(
     };
   }
 
-  // Henüz eşiğe ulaşılmadı: mevcut durumu koru, ilk hatada 5 sn sonra retry yap
+  // Henüz eşiğe ulaşılmadı (previousStatus === "UP"): mevcut durumu koru, ilk hatada 5 sn sonra retry yap
   return {
     nextStatus: input.previousStatus,
     nextConsecutiveFails: nextFails,

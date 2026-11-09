@@ -9,6 +9,8 @@ import {
   removeMonitorRepeatableJob,
 } from "@/lib/queue";
 
+export const dynamic = "force-dynamic";
+
 const updateMonitorSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   url: z.string().url().optional(),
